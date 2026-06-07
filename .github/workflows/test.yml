@@ -1,0 +1,90 @@
+name: Tests
+on:
+  push:
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        run: cargo test --all-targets --all-features
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        libc: [glibc, musl]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build CLI
+        run: cargo build
+
+      - name: Checkout example extension
+        uses: actions/checkout@v6
+        with:
+          repository: asgrim/example-pie-extension
+          path: ext
+
+      - name: Build example extension
+        working-directory: ext
+        run: |
+          ../target/debug/php-extension-builder build \
+            --package-version 0.0.0-test \
+            --php-version 8.3 \
+            --libc "${{ matrix.libc }}" \
+            --apt-package zlib1g-dev \
+            --apk-package zlib-dev \
+            --configure-flag '--with-hello-name=FROM_CLI' \
+            --configure-flag '--enable-example-pie-extension'
+
+  macos-smoke:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+
+      - name: Build CLI
+        run: cargo build
+
+      - name: Checkout example extension
+        uses: actions/checkout@v6
+        with:
+          repository: asgrim/example-pie-extension
+          path: ext
+
+      - name: Build example extension
+        working-directory: ext
+        run: |
+          ../target/debug/php-extension-builder build \
+            --target-os darwin \
+            --package-version 0.0.0-test \
+            --php-version 8.3 \
+            --configure-flag '--with-hello-name=FROM_CLI' \
+            --configure-flag '--enable-example-pie-extension'

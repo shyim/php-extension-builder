@@ -1,0 +1,7 @@
+target/
+dist/
+node_modules/
+coverage/
+*.zip
+.idea
+.DS_Store

@@ -1,0 +1,43 @@
+version: 2
+
+project_name: php-extension-builder
+
+builds:
+  - id: php-extension-builder
+    builder: rust
+    binary: php-extension-builder
+    tool: cargo
+    command: zigbuild
+    flags:
+      - --release
+      - --locked
+    targets:
+      - x86_64-apple-darwin
+      - aarch64-apple-darwin
+      - x86_64-unknown-linux-gnu
+      - aarch64-unknown-linux-gnu
+
+archives:
+  - id: php-extension-builder
+    ids:
+      - php-extension-builder
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
