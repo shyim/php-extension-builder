@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::Path;
-use zip::write::FileOptions;
+use zip::write::SimpleFileOptions;
 
 pub fn create_zip(source_file: &Path, output_file: &Path, entry_name: &str) -> Result<()> {
     let parent = output_file.parent().unwrap_or_else(|| Path::new("."));
@@ -17,7 +17,7 @@ pub fn create_zip(source_file: &Path, output_file: &Path, entry_name: &str) -> R
         .with_context(|| format!("failed to create package {}", output_file.display()))?;
 
     let mut zip = zip::ZipWriter::new(output);
-    let options = FileOptions::default()
+    let options = SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o644);
 

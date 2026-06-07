@@ -48,7 +48,12 @@ and puts `php-extension-builder` on `PATH`.
 
 Linux builds run inside official PHP Docker images. The CLI mounts the current
 directory into the container, installs build dependencies inside the ephemeral
-container, then runs `phpize`, `./configure`, and `make`.
+container, then runs any `--before-phpize-command` hooks followed by `phpize`,
+`./configure`, and `make`.
+
+Build logs are streamed as commands run. The builder also prints progress
+markers for dependency installation, before-phpize hooks, `phpize`,
+`./configure`, `make`, and metadata collection.
 
 ```bash
 php-extension-builder build \
@@ -127,11 +132,13 @@ php-extension-builder build \
   --php-config /opt/homebrew/bin/php-config
 ```
 
-The macOS backend runs `phpize`, `./configure`, and `make` on the host and
-packages the resulting `modules/<extension>.so`. If `--php-version` is supplied,
-the selected `php-config` must report that same PHP major/minor version. The
-default build is non-ZTS; pass `--zts` when building against a ZTS PHP, and the
-CLI will fail if the selected PHP thread-safety mode does not match.
+The macOS backend runs any `--before-phpize-command` hooks followed by
+`phpize`, `./configure`, and `make` on the host and packages the resulting
+`modules/<extension>.so`. If `--php-version` is supplied, the selected
+`php-config` must report that same PHP major/minor version. The default build is
+non-ZTS; pass `--zts` when building against a ZTS PHP, and the CLI will fail if
+the selected PHP thread-safety mode does not match. Native command logs are
+streamed as each command runs.
 
 ## Windows Builds
 
@@ -192,6 +199,7 @@ Windows artifact format stays aligned with that project.
 | `--zts` | Request a ZTS PHP build. Linux uses a ZTS Docker image; macOS validates the selected PHP is ZTS. Without it, the selected PHP must be non-ZTS. |
 | `--build-path <path>` | Extension source path containing `config.m4`, relative to the current directory. Defaults to `.`. |
 | `--configure-flag <flag>` | Additional flag passed to `./configure`. Can be supplied multiple times. |
+| `--before-phpize-command <command>` | Shell command run before `phpize`. Can be supplied multiple times; quote commands that include arguments. |
 | `--apt-package <package>` | Extra Debian/Ubuntu package installed with `apt-get`. Can be supplied multiple times. Linux Docker builds only. |
 | `--apk-package <package>` | Extra Alpine package installed with `apk`. Can be supplied multiple times. Linux Docker builds only. |
 | `--out-dir <path>` | Directory for the generated `.zip`. Defaults to the current directory. |
@@ -285,6 +293,7 @@ jobs:
           fi
 
           extra_args=(
+            # --before-phpize-command "composer install --no-dev"
             # --configure-flag "--enable-your-extension"
             # --apt-package libzstd-dev
             # --apk-package zstd-dev
@@ -353,6 +362,7 @@ jobs:
           mkdir -p "$ARTIFACT_DIR"
 
           extra_args=(
+            # --before-phpize-command "composer install --no-dev"
             # --configure-flag "--enable-your-extension"
           )
 

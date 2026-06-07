@@ -2,9 +2,10 @@ use crate::BuildConfig;
 use crate::cli::Libc;
 use crate::package::php_major_minor;
 use anyhow::{Context, Result, anyhow, bail};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
+use std::thread::{self, JoinHandle};
 
 const META_PREFIX: &str = "__PIE_META_";
 
@@ -30,6 +31,11 @@ impl BuildBackend for DockerLinux {
         let workdir = docker_workdir(&config.build_path)?;
         let script = docker_script(config);
 
+        eprintln!("==> Building Linux extension in Docker");
+        eprintln!("==> Docker image: {image}");
+        eprintln!("==> Workspace: {}", workspace.display());
+        eprintln!("==> Container workdir: {workdir}");
+
         let mut command = Command::new("docker");
         command
             .arg("run")
@@ -50,8 +56,7 @@ impl BuildBackend for DockerLinux {
 
         command.arg(image).arg("sh").arg("-c").arg(script);
 
-        let output = command.output().context("failed to start docker")?;
-        write_output(&output)?;
+        let output = run_streaming(&mut command, "docker build")?;
         ensure_success(&output, "docker build")?;
         let metadata = parse_metadata(&output)?;
         validate_requested_metadata(config, &metadata)?;
@@ -69,9 +74,15 @@ impl BuildBackend for NativeDarwin {
             .php_config
             .as_deref()
             .unwrap_or_else(|| Path::new("php-config"));
+        eprintln!("==> Building macOS extension natively");
+        eprintln!("==> Build path: {}", config.build_path.display());
+        eprintln!("==> php-config: {}", php_config.display());
         let metadata = native_metadata(config, php_config)?;
         validate_requested_metadata(config, &metadata)?;
 
+        for command in &config.before_phpize_commands {
+            run_native_shell(command, &config.build_path)?;
+        }
         run_native(
             CommandSpec::new("phpize", &[], &config.build_path),
             "phpize",
@@ -96,6 +107,7 @@ impl BuildBackend for NativeDarwin {
 }
 
 fn native_metadata(config: &BuildConfig, php_config: &Path) -> Result<BuildMetadata> {
+    eprintln!("==> Detecting PHP build metadata");
     let php_version = command_stdout(php_config, &["--version"], &config.build_path)
         .context("failed to run php-config --version")?;
     let php_binary = command_stdout(php_config, &["--php-binary"], &config.build_path)
@@ -146,14 +158,95 @@ impl<'a> CommandSpec<'a> {
 }
 
 fn run_native(spec: CommandSpec<'_>, label: &str) -> Result<()> {
-    let output = Command::new(spec.program)
-        .args(spec.args)
-        .current_dir(spec.cwd)
-        .output()
+    let mut command = Command::new(spec.program);
+    command.args(spec.args).current_dir(spec.cwd);
+
+    let output = run_streaming(&mut command, label)?;
+    ensure_success(&output, label)
+}
+
+fn run_native_shell(command: &str, cwd: &Path) -> Result<()> {
+    let label = format!("before phpize command `{command}`");
+    let mut shell = Command::new("sh");
+    shell.arg("-c").arg(command).current_dir(cwd);
+
+    let output = run_streaming(&mut shell, &label)?;
+    ensure_success(&output, &label)
+}
+
+fn run_streaming(command: &mut Command, label: &str) -> Result<Output> {
+    eprintln!("==> Running {label}");
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .with_context(|| format!("failed to start {label}"))?;
 
-    write_output(&output)?;
-    ensure_success(&output, label)
+    let stdout = child.stdout.take().context("failed to capture stdout")?;
+    let stderr = child.stderr.take().context("failed to capture stderr")?;
+    let stdout_thread = stream_output(stdout, StreamTarget::Stdout);
+    let stderr_thread = stream_output(stderr, StreamTarget::Stderr);
+    let status = child
+        .wait()
+        .with_context(|| format!("failed to wait for {label}"))?;
+    let stdout = join_stream(stdout_thread, label, "stdout")?;
+    let stderr = join_stream(stderr_thread, label, "stderr")?;
+
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+enum StreamTarget {
+    Stdout,
+    Stderr,
+}
+
+fn stream_output<R>(mut reader: R, target: StreamTarget) -> JoinHandle<io::Result<Vec<u8>>>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut captured = Vec::new();
+        let mut buffer = [0; 8192];
+
+        loop {
+            let bytes_read = reader.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+
+            let bytes = &buffer[..bytes_read];
+            captured.extend_from_slice(bytes);
+            match target {
+                StreamTarget::Stdout => {
+                    let mut stdout = io::stdout().lock();
+                    stdout.write_all(bytes)?;
+                    stdout.flush()?;
+                }
+                StreamTarget::Stderr => {
+                    let mut stderr = io::stderr().lock();
+                    stderr.write_all(bytes)?;
+                    stderr.flush()?;
+                }
+            }
+        }
+
+        Ok(captured)
+    })
+}
+
+fn join_stream(
+    thread: JoinHandle<io::Result<Vec<u8>>>,
+    label: &str,
+    stream_name: &str,
+) -> Result<Vec<u8>> {
+    thread
+        .join()
+        .map_err(|_| anyhow!("{label} {stream_name} stream thread panicked"))?
+        .with_context(|| format!("failed to stream {label} {stream_name}"))
 }
 
 fn command_stdout(program: &Path, args: &[&str], cwd: &Path) -> Result<String> {
@@ -192,16 +285,6 @@ fn validate_requested_metadata(config: &BuildConfig, metadata: &BuildMetadata) -
         (false, true) => bail!("non-ZTS build was requested, but selected PHP is ZTS; pass --zts"),
         _ => Ok(()),
     }
-}
-
-fn write_output(output: &Output) -> Result<()> {
-    io::stdout()
-        .write_all(&output.stdout)
-        .context("failed to write command stdout")?;
-    io::stderr()
-        .write_all(&output.stderr)
-        .context("failed to write command stderr")?;
-    Ok(())
 }
 
 fn docker_image(config: &BuildConfig) -> Result<String> {
@@ -244,6 +327,7 @@ fn docker_workdir(build_path: &Path) -> Result<String> {
 }
 
 fn docker_script(config: &BuildConfig) -> String {
+    let before_phpize_commands = docker_before_phpize_commands(&config.before_phpize_commands);
     let configure = if config.configure_flags.is_empty() {
         "./configure".to_string()
     } else {
@@ -262,6 +346,7 @@ fn docker_script(config: &BuildConfig) -> String {
 
     format!(
         r#"set -eu
+echo "==> Installing build dependencies" >&2
 if command -v apk >/dev/null 2>&1; then
   apk add --no-cache ${{PHPIZE_DEPS:-autoconf dpkg-dev dpkg file g++ gcc libc-dev make pkgconf re2c}} {alpine_package_args}
 elif command -v apt-get >/dev/null 2>&1; then
@@ -269,9 +354,13 @@ elif command -v apt-get >/dev/null 2>&1; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${{PHPIZE_DEPS:-autoconf dpkg-dev file g++ gcc libc-dev make pkg-config re2c}} {debian_package_args}
   rm -rf /var/lib/apt/lists/*
 fi
+{before_phpize_commands}echo "==> Running phpize" >&2
 phpize
+echo "==> Running configure" >&2
 {configure}
+echo "==> Running make" >&2
 make
+echo "==> Collecting build metadata" >&2
 php_binary="$(php-config --php-binary)"
 if [ "$php_binary" = "NONE" ]; then
   php_binary=php
@@ -281,10 +370,30 @@ printf '{META_PREFIX}ARCH=%s\n' "$(uname -m)"
 printf '{META_PREFIX}DEBUG=%s\n' "$("$php_binary" -n -r "echo PHP_DEBUG ? '-debug' : '';")"
 printf '{META_PREFIX}ZTS=%s\n' "$("$php_binary" -n -r "echo ZEND_THREAD_SAFE ? '-zts' : '';")"
 if [ -n "${{HOST_UID:-}}" ] && [ -n "${{HOST_GID:-}}" ]; then
+  echo "==> Restoring file ownership" >&2
   chown -R "$HOST_UID:$HOST_GID" .
 fi
 "#
     )
+}
+
+fn docker_before_phpize_commands(commands: &[String]) -> String {
+    let script = commands
+        .iter()
+        .map(|command| {
+            format!(
+                "echo {} >&2\n{command}",
+                shell_quote(&format!("==> Running before phpize command: {command}"))
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if script.is_empty() {
+        script
+    } else {
+        format!("{script}\n")
+    }
 }
 
 fn shell_args(values: &[String]) -> String {
@@ -372,6 +481,7 @@ mod tests {
             zts,
             build_path: PathBuf::from("."),
             configure_flags: Vec::new(),
+            before_phpize_commands: Vec::new(),
             apt_packages: Vec::new(),
             apk_packages: Vec::new(),
             out_dir: PathBuf::from("."),
@@ -435,6 +545,24 @@ mod tests {
 
         assert!(script.contains("apk add --no-cache ${PHPIZE_DEPS:-autoconf dpkg-dev dpkg file g++ gcc libc-dev make pkgconf re2c} 'zstd-dev' 'foo-dev'"));
         assert!(script.contains("apt-get install -y --no-install-recommends ${PHPIZE_DEPS:-autoconf dpkg-dev file g++ gcc libc-dev make pkg-config re2c} 'libzstd-dev' 'libfoo=1.2'"));
+    }
+
+    #[test]
+    fn docker_script_runs_before_phpize_commands() {
+        let mut config = linux_config(Libc::Glibc, false);
+        config.before_phpize_commands = vec![
+            "composer install --no-dev".to_string(),
+            "./autogen.sh --force".to_string(),
+        ];
+        let script = docker_script(&config);
+
+        assert!(script.contains(
+            "echo '==> Running before phpize command: composer install --no-dev' >&2\ncomposer install --no-dev"
+        ));
+        assert!(script.contains(
+            "echo '==> Running before phpize command: ./autogen.sh --force' >&2\n./autogen.sh --force"
+        ));
+        assert!(script.contains("./autogen.sh --force\necho \"==> Running phpize\" >&2\nphpize"));
     }
 
     #[test]

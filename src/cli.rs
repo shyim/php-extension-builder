@@ -37,6 +37,9 @@ pub struct BuildArgs {
     #[arg(long = "configure-flag", allow_hyphen_values = true)]
     pub configure_flag: Vec<String>,
 
+    #[arg(long = "before-phpize-command", allow_hyphen_values = true)]
+    pub before_phpize_command: Vec<String>,
+
     #[arg(long = "apt-package", allow_hyphen_values = true)]
     pub apt_package: Vec<String>,
 
@@ -135,5 +138,28 @@ mod tests {
         let Commands::Build(args) = cli.command;
         assert_eq!(args.apt_package, vec!["libzstd-dev"]);
         assert_eq!(args.apk_package, vec!["zstd-dev"]);
+    }
+
+    #[test]
+    fn accepts_repeated_before_phpize_commands() {
+        let cli = Cli::try_parse_from([
+            "php-extension-builder",
+            "build",
+            "--package-version",
+            "1.2.3",
+            "--php-version",
+            "8.3",
+            "--before-phpize-command",
+            "composer install --no-dev",
+            "--before-phpize-command",
+            "./autogen.sh --force",
+        ])
+        .unwrap();
+
+        let Commands::Build(args) = cli.command;
+        assert_eq!(
+            args.before_phpize_command,
+            vec!["composer install --no-dev", "./autogen.sh --force"]
+        );
     }
 }
