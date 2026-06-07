@@ -3,7 +3,7 @@ name = "php-extension-builder"
 version = "0.1.0"
 edition = "2024"
 description = "Build PHP extension pre-packaged binaries from Rust"
-license = "BSD-3-Clause"
+license = "MIT"
 
 [lints.clippy]
 correctness = { level = "deny", priority = -1 }

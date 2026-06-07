@@ -216,95 +216,198 @@ php_example-1.2.3_php8.3-arm64-darwin-bsdlibc.zip
 
 ## GitHub Actions Example
 
+This example builds Linux and macOS PIE packages with the released builder
+binary, uploads every matrix artifact, and publishes a GitHub release with
+checksums when the workflow runs for a tag. Keep Windows builds in a separate
+job using `php/php-windows-builder` as shown above.
+
 ```yaml
-name: Build PIE binaries
+name: Release PIE binaries
 
 on:
   push:
-    tags:
-      - '*'
+    tags: ["*"]
+  workflow_dispatch:
+    inputs:
+      package_version:
+        description: Package version used in generated package names. Defaults to the ref name without a leading v.
+        required: false
+        type: string
+
+permissions:
+  contents: read
 
 env:
   PHP_EXTENSION_BUILDER_VERSION: v0.1.0
+  ARTIFACT_DIR: dist
 
 jobs:
   build-linux:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        php-version: ['8.2', '8.3', '8.4']
-        libc: [glibc, musl]
-        zts: ['', '--zts']
-    steps:
-      - uses: actions/checkout@v6
-      - name: Install php-extension-builder
-        uses: jaxxstorm/action-install-gh-release@v3.0.0
-        with:
-          repo: shyim/php-extension-builder
-          tag: ${{ env.PHP_EXTENSION_BUILDER_VERSION }}
-          cache: enable
-      - run: |
-          php-extension-builder build \
-            --package-version "${GITHUB_REF_NAME}" \
-            --php-version "${{ matrix.php-version }}" \
-            --libc "${{ matrix.libc }}" \
-            ${{ matrix.zts }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: php-extension-${{ matrix.php-version }}-${{ matrix.libc }}-${{ matrix.zts }}
-          path: '*.zip'
-
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-      - name: Install php-extension-builder
-        uses: jaxxstorm/action-install-gh-release@v3.0.0
-        with:
-          repo: shyim/php-extension-builder
-          tag: ${{ env.PHP_EXTENSION_BUILDER_VERSION }}
-          cache: enable
-      - run: |
-          php-extension-builder build \
-            --target-os darwin \
-            --package-version "${GITHUB_REF_NAME}" \
-            --php-version 8.3
-      - uses: actions/upload-artifact@v4
-        with:
-          name: php-extension-macos
-          path: '*.zip'
-
-  windows-matrix:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.extension-matrix.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@v6
-      - name: Get Windows extension matrix
-        id: extension-matrix
-        uses: php/php-windows-builder/extension-matrix@v1
-        with:
-          php-version-list: '8.2, 8.3, 8.4'
-          arch-list: 'x64'
-          ts-list: 'nts, ts'
-
-  build-windows:
-    needs: windows-matrix
-    runs-on: ${{ matrix.os }}
+    name: "PHP ${{ matrix.php-version }} / Linux ${{ matrix.libc }} / ${{ matrix.thread-safety }}"
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.windows-matrix.outputs.matrix) }}
+      matrix:
+        php-version: ["8.2", "8.3", "8.4", "8.5"]
+        libc: [glibc, musl]
+        thread-safety: [nts, zts]
     steps:
-      - uses: actions/checkout@v6
-      - name: Build Windows extension
-        uses: php/php-windows-builder/extension@v1
+      - name: Checkout
+        uses: actions/checkout@v6.0.3
+
+      - name: Resolve package version
+        env:
+          INPUT_PACKAGE_VERSION: ${{ inputs.package_version }}
+        run: |
+          if [ -n "$INPUT_PACKAGE_VERSION" ]; then
+            version="$INPUT_PACKAGE_VERSION"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+
+          echo "PACKAGE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Install php-extension-builder
+        uses: jaxxstorm/action-install-gh-release@v3.0.0
+        with:
+          repo: shyim/php-extension-builder
+          tag: ${{ env.PHP_EXTENSION_BUILDER_VERSION }}
+          cache: enable
+
+      - name: Build extension
+        shell: bash
+        run: |
+          mkdir -p "$ARTIFACT_DIR"
+
+          zts_args=()
+          if [ "${{ matrix.thread-safety }}" = "zts" ]; then
+            zts_args+=(--zts)
+          fi
+
+          extra_args=(
+            # --configure-flag "--enable-your-extension"
+            # --apt-package libzstd-dev
+            # --apk-package zstd-dev
+          )
+
+          php-extension-builder build \
+            --package-version "$PACKAGE_VERSION" \
+            --php-version "${{ matrix.php-version }}" \
+            --libc "${{ matrix.libc }}" \
+            --out-dir "$ARTIFACT_DIR" \
+            "${zts_args[@]}" \
+            "${extra_args[@]}"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: php-extension-php${{ matrix.php-version }}-linux-${{ matrix.libc }}-${{ matrix.thread-safety }}
+          path: ${{ env.ARTIFACT_DIR }}/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  build-macos:
+    runs-on: ${{ matrix.target.runner }}
+    name: "PHP ${{ matrix.php-version }} / macOS ${{ matrix.target.arch }} / nts"
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ["8.2", "8.3", "8.4", "8.5"]
+        target:
+          - runner: macos-15-intel
+            arch: x86_64
+          - runner: macos-15
+            arch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.3
+
+      - name: Resolve package version
+        env:
+          INPUT_PACKAGE_VERSION: ${{ inputs.package_version }}
+        run: |
+          if [ -n "$INPUT_PACKAGE_VERSION" ]; then
+            version="$INPUT_PACKAGE_VERSION"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+
+          echo "PACKAGE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@2.37.1
         with:
           php-version: ${{ matrix.php-version }}
-          arch: ${{ matrix.arch }}
-          ts: ${{ matrix.ts }}
-          # args: --enable-your-extension
-          # libs: zlib
+          coverage: none
+
+      - name: Install php-extension-builder
+        uses: jaxxstorm/action-install-gh-release@v3.0.0
+        with:
+          repo: shyim/php-extension-builder
+          tag: ${{ env.PHP_EXTENSION_BUILDER_VERSION }}
+          cache: enable
+
+      - name: Build extension
+        shell: bash
+        run: |
+          mkdir -p "$ARTIFACT_DIR"
+
+          extra_args=(
+            # --configure-flag "--enable-your-extension"
+          )
+
+          php-extension-builder build \
+            --target-os darwin \
+            --package-version "$PACKAGE_VERSION" \
+            --php-version "${{ matrix.php-version }}" \
+            --php-config "$(command -v php-config)" \
+            --out-dir "$ARTIFACT_DIR" \
+            "${extra_args[@]}"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: php-extension-php${{ matrix.php-version }}-darwin-${{ matrix.target.arch }}-nts
+          path: ${{ env.ARTIFACT_DIR }}/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    runs-on: ubuntu-latest
+    name: Publish GitHub release
+    needs:
+      - build-linux
+      - build-macos
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v8.0.1
+        with:
+          path: packages
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          mkdir -p dist
+          find packages -type f -name '*.zip' -exec cp '{}' dist/ \;
+
+          mapfile -t packages < <(find dist -maxdepth 1 -type f -name '*.zip' -print | sort)
+          if [ "${#packages[@]}" -eq 0 ]; then
+            echo "No packages found" >&2
+            exit 1
+          fi
+
+          sha256sum "${packages[@]}" > dist/checksums.txt
+          ls -lah dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3.0.0
+        with:
+          files: |
+            dist/*.zip
+            dist/checksums.txt
+          fail_on_unmatched_files: true
+          generate_release_notes: true
 ```
