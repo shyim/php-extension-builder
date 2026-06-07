@@ -29,6 +29,21 @@ Release publishing is handled by GoReleaser. Pushing a tag like `v0.1.0`
 triggers the release workflow, builds the CLI binaries with `cargo zigbuild`,
 uploads `.tar.gz` archives, and publishes `checksums.txt`.
 
+In GitHub Actions, prefer installing one of those release archives instead of
+building the CLI with Cargo in every extension workflow:
+
+```yaml
+- name: Install php-extension-builder
+  uses: jaxxstorm/action-install-gh-release@v3.0.0
+  with:
+    repo: shyim/php-extension-builder
+    tag: v0.1.0
+    cache: enable
+```
+
+The action selects the matching Linux or macOS archive for the current runner
+and puts `php-extension-builder` on `PATH`.
+
 ## Linux Builds
 
 Linux builds run inside official PHP Docker images. The CLI mounts the current
@@ -209,6 +224,9 @@ on:
     tags:
       - '*'
 
+env:
+  PHP_EXTENSION_BUILDER_VERSION: v0.1.0
+
 jobs:
   build-linux:
     runs-on: ubuntu-latest
@@ -219,10 +237,14 @@ jobs:
         zts: ['', '--zts']
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release
+      - name: Install php-extension-builder
+        uses: jaxxstorm/action-install-gh-release@v3.0.0
+        with:
+          repo: shyim/php-extension-builder
+          tag: ${{ env.PHP_EXTENSION_BUILDER_VERSION }}
+          cache: enable
       - run: |
-          ./target/release/php-extension-builder build \
+          php-extension-builder build \
             --package-version "${GITHUB_REF_NAME}" \
             --php-version "${{ matrix.php-version }}" \
             --libc "${{ matrix.libc }}" \
@@ -236,13 +258,17 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-      - run: cargo build --release
+      - name: Install php-extension-builder
+        uses: jaxxstorm/action-install-gh-release@v3.0.0
+        with:
+          repo: shyim/php-extension-builder
+          tag: ${{ env.PHP_EXTENSION_BUILDER_VERSION }}
+          cache: enable
       - run: |
-          ./target/release/php-extension-builder build \
+          php-extension-builder build \
             --target-os darwin \
             --package-version "${GITHUB_REF_NAME}" \
             --php-version 8.3

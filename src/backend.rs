@@ -257,16 +257,16 @@ fn docker_script(config: &BuildConfig) -> String {
                 .join(" ")
         )
     };
-    let apt_packages = shell_args(&config.apt_packages);
-    let apk_packages = shell_args(&config.apk_packages);
+    let debian_package_args = shell_args(&config.apt_packages);
+    let alpine_package_args = shell_args(&config.apk_packages);
 
     format!(
         r#"set -eu
 if command -v apk >/dev/null 2>&1; then
-  apk add --no-cache ${{PHPIZE_DEPS:-autoconf dpkg-dev dpkg file g++ gcc libc-dev make pkgconf re2c}} {apk_packages}
+  apk add --no-cache ${{PHPIZE_DEPS:-autoconf dpkg-dev dpkg file g++ gcc libc-dev make pkgconf re2c}} {alpine_package_args}
 elif command -v apt-get >/dev/null 2>&1; then
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${{PHPIZE_DEPS:-autoconf dpkg-dev file g++ gcc libc-dev make pkg-config re2c}} {apt_packages}
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${{PHPIZE_DEPS:-autoconf dpkg-dev file g++ gcc libc-dev make pkg-config re2c}} {debian_package_args}
   rm -rf /var/lib/apt/lists/*
 fi
 phpize

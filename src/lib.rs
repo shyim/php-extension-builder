@@ -11,6 +11,12 @@ pub use cli::{Cli, Commands};
 use package::PackageDetails;
 use std::path::PathBuf;
 
+/// Runs the requested CLI command.
+///
+/// # Errors
+///
+/// Returns an error if command validation, building, metadata collection, or
+/// package creation fails.
 pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Build(args) => {
@@ -21,6 +27,13 @@ pub fn run(cli: Cli) -> Result<()> {
     }
 }
 
+/// Builds and packages a PHP extension.
+///
+/// # Errors
+///
+/// Returns an error if the build arguments are invalid, required project
+/// metadata cannot be read, the selected backend fails, or the output archive
+/// cannot be created.
 pub fn build(args: BuildArgs) -> Result<PathBuf> {
     let config = BuildConfig::try_from(args)?;
     let extension_name = composer::extension_name_from_file("composer.json")?;
