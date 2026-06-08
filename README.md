@@ -1,10 +1,11 @@
 # Generate Pre-Packaged Binaries for PHP Extensions
 
-`php-extension-builder` is a Rust CLI for building pre-packaged binary archives
+`php-extension-builder` is a Rust CLI for building pre-packaged binary artifacts
 for [PIE (PHP Installer for Extensions)](https://github.com/php/pie) extensions.
 
-It builds one target per invocation and writes a PIE-named `.zip` file containing
-the compiled extension `.so`.
+It builds one target per invocation and writes requested artifacts containing the
+compiled extension `.so`. By default it keeps the PIE-compatible `.zip` output.
+Pass repeated `--artifact` flags to request additional formats such as `.deb`.
 
 ## Install
 
@@ -60,6 +61,8 @@ php-extension-builder build \
   --package-version 1.2.3 \
   --php-version 8.3 \
   --libc glibc \
+  --artifact zip \
+  --artifact deb \
   --configure-flag '--enable-example-pie-extension'
 ```
 
@@ -117,6 +120,53 @@ php-extension-builder build \
   --php-version 8.3 \
   --image ghcr.io/acme/php-extension-builder:8.3
 ```
+
+## Debian Packages
+
+Linux glibc non-ZTS builds can also emit native `.deb` packages:
+
+```bash
+php-extension-builder build \
+  --package-version 1.2.3 \
+  --php-version 8.3 \
+  --libc glibc \
+  --artifact deb
+```
+
+To emit both the PIE ZIP and Debian package in one build:
+
+```bash
+php-extension-builder build \
+  --package-version 1.2.3 \
+  --php-version 8.3 \
+  --libc glibc \
+  --artifact zip \
+  --artifact deb
+```
+
+The Debian package is named `php<php-version>-<extension>` so packages for
+multiple PHP versions can be installed side by side on the same Debian or
+Ubuntu system. For Debian package-name validity, uppercase extension names are
+lowercased and underscores become hyphens in the package name only. It installs:
+
+- `/usr/lib/php/<php-api>/<extension>.so`
+- `/etc/php/<php-version>/mods-available/<extension>.ini`
+
+The package depends on `phpapi-<php-api>` and `php-common`, and provides the
+generic virtual package `php-<extension>`. Its maintainer scripts run
+`phpenmod -v <php-version> <extension>` on install and
+`phpdismod -v <php-version> <extension>` on removal when those commands are
+available.
+
+Debian output is intentionally limited in this first version:
+
+- Linux only
+- glibc only
+- non-ZTS only
+
+The extension is still compiled in the official `php:<version>` Docker image,
+matching the existing Linux backend. The Debian package metadata is generated
+from `php-config` metadata reported by that build image.
 
 ## macOS Builds
 
@@ -193,6 +243,7 @@ Windows artifact format stays aligned with that project.
 | Option | Description |
 |--------|-------------|
 | `--package-version <version>` | Required. Used in the generated PIE package filename. |
+| `--artifact <zip\|deb>` | Artifact to generate. Can be supplied multiple times. Defaults to `zip`. |
 | `--php-version <major.minor>` | Required for Linux Docker builds. Optional for macOS, where it validates the selected `php-config`. |
 | `--target-os <linux\|darwin>` | Build backend. Defaults to `linux`. |
 | `--libc <glibc\|musl\|bsdlibc>` | Linux defaults to `glibc`; Darwin defaults to `bsdlibc`. |
@@ -208,7 +259,7 @@ Windows artifact format stays aligned with that project.
 
 ## Package Names
 
-Generated archives keep PIE's expected naming convention:
+Generated ZIP archives keep PIE's expected naming convention:
 
 ```text
 php_<extension>-<release>_php<php-version>-<arch>-<os>-<libc><debug><zts>.zip
@@ -222,12 +273,25 @@ php_example-1.2.3_php8.3-arm64-linux-musl-zts.zip
 php_example-1.2.3_php8.3-arm64-darwin-bsdlibc.zip
 ```
 
+Generated Debian packages use Debian-style package names and architecture names:
+
+```text
+php<php-version>-<extension>_<release>_<deb-arch>.deb
+```
+
+Example:
+
+```text
+php8.3-example_1.2.3_amd64.deb
+```
+
 ## GitHub Actions Example
 
 This example builds Linux and macOS PIE packages with the released builder
 binary, uploads every matrix artifact, and publishes a GitHub release with
-checksums when the workflow runs for a tag. Keep Windows builds in a separate
-job using `php/php-windows-builder` as shown above.
+checksums when the workflow runs for a tag. The Linux glibc non-ZTS rows also
+emit `.deb` packages. Keep Windows builds in a separate job using
+`php/php-windows-builder` as shown above.
 
 ```yaml
 name: Release PIE binaries
@@ -299,11 +363,17 @@ jobs:
             # --apk-package zstd-dev
           )
 
+          artifact_args=(--artifact zip)
+          if [ "${{ matrix.libc }}" = "glibc" ] && [ "${{ matrix.thread-safety }}" = "nts" ]; then
+            artifact_args+=(--artifact deb)
+          fi
+
           php-extension-builder build \
             --package-version "$PACKAGE_VERSION" \
             --php-version "${{ matrix.php-version }}" \
             --libc "${{ matrix.libc }}" \
             --out-dir "$ARTIFACT_DIR" \
+            "${artifact_args[@]}" \
             "${zts_args[@]}" \
             "${extra_args[@]}"
 
@@ -311,7 +381,9 @@ jobs:
         uses: actions/upload-artifact@v7.0.1
         with:
           name: php-extension-php${{ matrix.php-version }}-linux-${{ matrix.libc }}-${{ matrix.thread-safety }}
-          path: ${{ env.ARTIFACT_DIR }}/*.zip
+          path: |
+            ${{ env.ARTIFACT_DIR }}/*.zip
+            ${{ env.ARTIFACT_DIR }}/*.deb
           if-no-files-found: error
           retention-days: 7
 
@@ -371,6 +443,7 @@ jobs:
             --package-version "$PACKAGE_VERSION" \
             --php-version "${{ matrix.php-version }}" \
             --php-config "$(command -v php-config)" \
+            --artifact zip \
             --out-dir "$ARTIFACT_DIR" \
             "${extra_args[@]}"
 
@@ -402,8 +475,11 @@ jobs:
         run: |
           mkdir -p dist
           find packages -type f -name '*.zip' -exec cp '{}' dist/ \;
+          find packages -type f -name '*.deb' -exec cp '{}' dist/ \;
 
           mapfile -t packages < <(find dist -maxdepth 1 -type f -name '*.zip' -print | sort)
+          mapfile -t debs < <(find dist -maxdepth 1 -type f -name '*.deb' -print | sort)
+          packages+=("${debs[@]}")
           if [ "${#packages[@]}" -eq 0 ]; then
             echo "No packages found" >&2
             exit 1
@@ -417,6 +493,7 @@ jobs:
         with:
           files: |
             dist/*.zip
+            dist/*.deb
             dist/checksums.txt
           fail_on_unmatched_files: true
           generate_release_notes: true

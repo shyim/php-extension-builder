@@ -13,6 +13,7 @@ const META_PREFIX: &str = "__PIE_META_";
 pub struct BuildMetadata {
     pub php_major_minor: String,
     pub arch: String,
+    pub extension_dir: String,
     pub debug_suffix: String,
     pub zts_suffix: String,
 }
@@ -112,6 +113,8 @@ fn native_metadata(config: &BuildConfig, php_config: &Path) -> Result<BuildMetad
         .context("failed to run php-config --version")?;
     let php_binary = command_stdout(php_config, &["--php-binary"], &config.build_path)
         .context("failed to run php-config --php-binary")?;
+    let extension_dir = command_stdout(php_config, &["--extension-dir"], &config.build_path)
+        .context("failed to run php-config --extension-dir")?;
     let php_binary = if php_binary.trim() == "NONE" {
         PathBuf::from("php")
     } else {
@@ -136,6 +139,7 @@ fn native_metadata(config: &BuildConfig, php_config: &Path) -> Result<BuildMetad
     Ok(BuildMetadata {
         php_major_minor: php_major_minor(&php_version),
         arch: normalize_arch(&arch)?,
+        extension_dir: extension_dir.trim().to_string(),
         debug_suffix: debug_suffix.trim().to_string(),
         zts_suffix: zts_suffix.trim().to_string(),
     })
@@ -367,6 +371,7 @@ if [ "$php_binary" = "NONE" ]; then
 fi
 printf '{META_PREFIX}PHP_VERSION=%s\n' "$(php-config --version)"
 printf '{META_PREFIX}ARCH=%s\n' "$(uname -m)"
+printf '{META_PREFIX}EXTENSION_DIR=%s\n' "$(php-config --extension-dir)"
 printf '{META_PREFIX}DEBUG=%s\n' "$("$php_binary" -n -r "echo PHP_DEBUG ? '-debug' : '';")"
 printf '{META_PREFIX}ZTS=%s\n' "$("$php_binary" -n -r "echo ZEND_THREAD_SAFE ? '-zts' : '';")"
 if [ -n "${{HOST_UID:-}}" ] && [ -n "${{HOST_GID:-}}" ]; then
@@ -412,6 +417,7 @@ fn parse_metadata(output: &Output) -> Result<BuildMetadata> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut php_version = None;
     let mut arch = None;
+    let mut extension_dir = None;
     let mut debug_suffix = None;
     let mut zts_suffix = None;
 
@@ -420,6 +426,8 @@ fn parse_metadata(output: &Output) -> Result<BuildMetadata> {
             php_version = Some(value.to_string());
         } else if let Some(value) = line.strip_prefix(&format!("{META_PREFIX}ARCH=")) {
             arch = Some(value.to_string());
+        } else if let Some(value) = line.strip_prefix(&format!("{META_PREFIX}EXTENSION_DIR=")) {
+            extension_dir = Some(value.to_string());
         } else if let Some(value) = line.strip_prefix(&format!("{META_PREFIX}DEBUG=")) {
             debug_suffix = Some(value.to_string());
         } else if let Some(value) = line.strip_prefix(&format!("{META_PREFIX}ZTS=")) {
@@ -432,6 +440,7 @@ fn parse_metadata(output: &Output) -> Result<BuildMetadata> {
             &php_version.context("docker build did not report PHP version")?,
         ),
         arch: normalize_arch(&arch.context("docker build did not report architecture")?)?,
+        extension_dir: extension_dir.context("docker build did not report extension directory")?,
         debug_suffix: debug_suffix.unwrap_or_default(),
         zts_suffix: zts_suffix.unwrap_or_default(),
     })
@@ -468,13 +477,14 @@ mod tests {
     };
     use crate::BuildConfig;
     use crate::backend::docker_image;
-    use crate::cli::{Libc, TargetOs};
+    use crate::cli::{ArtifactKind, Libc, TargetOs};
     use std::path::Path;
     use std::path::PathBuf;
 
     fn linux_config(libc: Libc, zts: bool) -> BuildConfig {
         BuildConfig {
             package_version: "1.2.3".to_string(),
+            artifacts: vec![ArtifactKind::Zip],
             php_version: Some("8.3".to_string()),
             target_os: TargetOs::Linux,
             libc,
@@ -580,6 +590,7 @@ mod tests {
         let metadata = BuildMetadata {
             php_major_minor: "8.2".to_string(),
             arch: "arm64".to_string(),
+            extension_dir: "/usr/local/lib/php/extensions/no-debug-non-zts-20230831".to_string(),
             debug_suffix: String::new(),
             zts_suffix: String::new(),
         };
@@ -597,6 +608,7 @@ mod tests {
         let metadata = BuildMetadata {
             php_major_minor: "8.3".to_string(),
             arch: "arm64".to_string(),
+            extension_dir: "/usr/local/lib/php/extensions/no-debug-non-zts-20230831".to_string(),
             debug_suffix: String::new(),
             zts_suffix: String::new(),
         };
@@ -614,6 +626,7 @@ mod tests {
         let metadata = BuildMetadata {
             php_major_minor: "8.3".to_string(),
             arch: "arm64".to_string(),
+            extension_dir: "/usr/local/lib/php/extensions/no-debug-zts-20230831".to_string(),
             debug_suffix: String::new(),
             zts_suffix: "-zts".to_string(),
         };

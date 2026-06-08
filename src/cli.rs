@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 #[command(name = "php-extension-builder")]
-#[command(about = "Build PHP extension pre-packaged binary ZIPs")]
+#[command(about = "Build PHP extension pre-packaged binary artifacts")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -18,6 +18,9 @@ pub enum Commands {
 pub struct BuildArgs {
     #[arg(long)]
     pub package_version: String,
+
+    #[arg(long = "artifact", value_enum)]
+    pub artifact: Vec<ArtifactKind>,
 
     #[arg(long)]
     pub php_version: Option<String>,
@@ -69,6 +72,12 @@ impl TargetOs {
             Self::Darwin => "darwin",
         }
     }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
+pub enum ArtifactKind {
+    Zip,
+    Deb,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
@@ -160,6 +169,29 @@ mod tests {
         assert_eq!(
             args.before_phpize_command,
             vec!["composer install --no-dev", "./autogen.sh --force"]
+        );
+    }
+
+    #[test]
+    fn accepts_repeated_artifacts() {
+        let cli = Cli::try_parse_from([
+            "php-extension-builder",
+            "build",
+            "--package-version",
+            "1.2.3",
+            "--php-version",
+            "8.3",
+            "--artifact",
+            "zip",
+            "--artifact",
+            "deb",
+        ])
+        .unwrap();
+
+        let Commands::Build(args) = cli.command;
+        assert_eq!(
+            args.artifact,
+            vec![super::ArtifactKind::Zip, super::ArtifactKind::Deb]
         );
     }
 }
