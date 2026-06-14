@@ -24,6 +24,12 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8-2", "8-3", "8-4", "8-5"]
+        suffix: [cli, cli-alpine, zts, zts-alpine]
+    name: "image-${{ matrix.php }}-${{ matrix.suffix }}"
     steps:
       - uses: actions/checkout@v4
 
@@ -40,7 +46,7 @@ jobs:
       - uses: docker/bake-action@v5
         with:
           files: docker-bake.hcl
-          targets: image
+          targets: image-${{ matrix.php }}-${{ matrix.suffix }}
           push: ${{ github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.push) }}
           set: |
             *.args.GIT_SHA=${{ github.sha }}
