@@ -169,8 +169,8 @@ the extension name and the generated artifact metadata.
 The pre-baked images are built and published by the
 [`docker-images.yml`](.github/workflows/docker-images.yml) workflow, which calls
 [`docker/github-builder`](https://github.com/docker/github-builder)'s reusable
-`bake` workflow against [`docker-bake.hcl`](docker-bake.hcl) and pushes one
-multi-arch (`linux/amd64` + `linux/arm64`) tag per PHP/variant combination.
+`build` workflow from a PHP/variant matrix and pushes one multi-arch
+(`linux/amd64` + `linux/arm64`) tag per combination from [`docker/Dockerfile`](docker/Dockerfile).
 
 Rust extensions also build natively on macOS (see the macOS section below);
 Windows is not yet supported for `ext-php-rs`.
