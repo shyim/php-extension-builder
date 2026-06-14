@@ -121,6 +121,60 @@ php-extension-builder build \
   --image ghcr.io/acme/php-extension-builder:8.3
 ```
 
+## Rust (ext-php-rs) Extensions
+
+Extensions written in Rust with [`ext-php-rs`](https://github.com/davidcole1340/ext-php-rs)
+are supported on Linux. The builder auto-detects them: if `Cargo.toml` at the
+build path declares an `ext-php-rs` dependency, the build runs as a Rust build.
+Pass `--build-kind rust` (or `--build-kind c`) to force the detection.
+
+Rust builds run inside pre-baked images that ship a Rust toolchain plus the
+`clang`/`libclang` that `ext-php-rs`'s `bindgen` requires. The image tag is
+auto-derived from the same `--php-version`/`--libc`/`--zts` inputs as C builds:
+
+```text
+ghcr.io/shyim/php-extension-builder-rust:<php-version>-<suffix>
+```
+
+| Target      | Default Rust image suffix |
+|-------------|---------------------------|
+| glibc NTS   | `cli`                     |
+| glibc ZTS   | `zts`                     |
+| musl NTS    | `cli-alpine`              |
+| musl ZTS    | `zts-alpine`              |
+
+Use `--image` to override it with your own Rust-capable image.
+
+```bash
+php-extension-builder build \
+  --package-version 1.2.3 \
+  --php-version 8.3 \
+  --libc glibc \
+  --cargo-feature closure
+```
+
+Inside the container the builder reuses the standard `phpize` → `configure` →
+`make` flow when the project ships PIE build files (a top-level `config.m4` or a
+`pie/config.m4`, as is conventional for `ext-php-rs` projects), since that
+`make` step delegates to Cargo. When no PIE build files are present it falls
+back to running `cargo build --release` directly. Repeat `--cargo-feature` to
+enable Cargo features; `--configure-flag` is rejected for Rust builds.
+
+The compiled `.so` is located by searching, in order, `modules/<extension>.so`
+(the PIE/`make` output), `<extension>.so`, and
+`target/release/lib<crate>.so` (the raw Cargo cdylib, including a workspace-root
+`target/` for workspace members). A valid `composer.json` is still required for
+the extension name and the generated artifact metadata.
+
+The pre-baked images are built and published by the
+[`docker-images.yml`](.github/workflows/docker-images.yml) workflow, which calls
+[`docker/github-builder`](https://github.com/docker/github-builder)'s reusable
+`bake` workflow against [`docker-bake.hcl`](docker-bake.hcl) and pushes one
+multi-arch (`linux/amd64` + `linux/arm64`) tag per PHP/variant combination.
+
+Rust extensions also build natively on macOS (see the macOS section below);
+Windows is not yet supported for `ext-php-rs`.
+
 ## Debian Packages
 
 Linux glibc non-ZTS builds can also emit native `.deb` packages:
@@ -190,6 +244,26 @@ non-ZTS; pass `--zts` when building against a ZTS PHP, and the CLI will fail if
 the selected PHP thread-safety mode does not match. Native command logs are
 streamed as each command runs.
 
+Rust (`ext-php-rs`) extensions build natively on macOS too — the same
+auto-detection applies. When the project ships PIE build files (a `config.m4` or
+`pie/config.m4`) the backend uses the `phpize`/`configure`/`make` flow;
+otherwise it runs `cargo build --release` directly and packages
+`target/release/lib<crate>.dylib`. Cargo must be on `PATH`, so install a Rust
+toolchain first. On a GitHub Actions macOS runner, add a setup step before the
+build:
+
+```yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build Rust extension
+        run: |
+          php-extension-builder build \
+            --target-os darwin \
+            --package-version 1.2.3 \
+            --php-version 8.3 \
+            --php-config /opt/homebrew/bin/php-config \
+            --cargo-feature closure
+```
+
 ## Windows Builds
 
 Windows PHP extensions are built as `.dll` files with PHP's Windows build
@@ -248,6 +322,8 @@ Windows artifact format stays aligned with that project.
 | `--target-os <linux\|darwin>` | Build backend. Defaults to `linux`. |
 | `--libc <glibc\|musl\|bsdlibc>` | Linux defaults to `glibc`; Darwin defaults to `bsdlibc`. |
 | `--zts` | Request a ZTS PHP build. Linux uses a ZTS Docker image; macOS validates the selected PHP is ZTS. Without it, the selected PHP must be non-ZTS. |
+| `--build-kind <c\|rust>` | Force the build backend. Defaults to auto-detection (`rust` when `Cargo.toml` declares an `ext-php-rs` dependency, otherwise `c`). |
+| `--cargo-feature <feature>` | Cargo feature enabled for Rust builds. Can be supplied multiple times. Rust builds only. |
 | `--build-path <path>` | Extension source path containing `config.m4`, relative to the current directory. Defaults to `.`. |
 | `--configure-flag <flag>` | Additional flag passed to `./configure`. Can be supplied multiple times. |
 | `--before-phpize-command <command>` | Shell command run before `phpize`. Can be supplied multiple times; quote commands that include arguments. |

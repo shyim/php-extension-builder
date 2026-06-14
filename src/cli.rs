@@ -57,6 +57,12 @@ pub struct BuildArgs {
 
     #[arg(long)]
     pub php_config: Option<PathBuf>,
+
+    #[arg(long, value_enum)]
+    pub build_kind: Option<BuildKind>,
+
+    #[arg(long = "cargo-feature", allow_hyphen_values = true)]
+    pub cargo_feature: Vec<String>,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
@@ -78,6 +84,12 @@ impl TargetOs {
 pub enum ArtifactKind {
     Zip,
     Deb,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
+pub enum BuildKind {
+    C,
+    Rust,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
@@ -170,6 +182,26 @@ mod tests {
             args.before_phpize_command,
             vec!["composer install --no-dev", "./autogen.sh --force"]
         );
+    }
+
+    #[test]
+    fn accepts_repeated_cargo_features() {
+        let cli = Cli::try_parse_from([
+            "php-extension-builder",
+            "build",
+            "--package-version",
+            "1.2.3",
+            "--php-version",
+            "8.3",
+            "--cargo-feature",
+            "closure",
+            "--cargo-feature",
+            "anyhow",
+        ])
+        .unwrap();
+
+        let Commands::Build(args) = cli.command;
+        assert_eq!(args.cargo_feature, vec!["closure", "anyhow"]);
     }
 
     #[test]
