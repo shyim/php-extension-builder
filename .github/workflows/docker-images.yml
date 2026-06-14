@@ -22,6 +22,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
   packages: write
 
 jobs:
@@ -46,7 +47,8 @@ jobs:
         type=raw,value=${{ matrix.php-version }}-${{ matrix.suffix }}
         type=raw,value=${{ matrix.php-version }}-${{ matrix.suffix }}-${{ github.sha }}
       push: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && inputs.push) }}
-      sbom: true
-      sign: "false"
     secrets:
-      github-token: ${{ secrets.GITHUB_TOKEN }}
+      registry-auths: |
+        - registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
