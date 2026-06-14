@@ -22,6 +22,11 @@ RUN set -eux; \
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
         | sh -s -- -y --no-modify-path --profile minimal --default-toolchain stable; \
     rustc --version; \
-    cargo --version
+    cargo --version; \
+    libclang_so="$(find / -name 'libclang-*.so' -o -name 'libclang.so' -o -name 'libclang.so.*' 2>/dev/null | head -n1)"; \
+    test -n "$libclang_so"; \
+    mkdir -p /opt/libclang; \
+    ln -sf "$libclang_so" /opt/libclang/libclang.so
 
-ENV LIBCLANG_PATH=/usr/lib
+# Point bindgen/clang-sys at the libclang resolved during build (path varies by distro/arch/LLVM version).
+ENV LIBCLANG_PATH=/opt/libclang

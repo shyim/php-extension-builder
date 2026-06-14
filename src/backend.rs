@@ -467,8 +467,12 @@ if ! command -v cargo >/dev/null 2>&1; then
   echo "error: cargo not found; use a Rust-enabled image such as ghcr.io/shyim/php-extension-builder-rust" >&2
   exit 1
 fi
-if [ -z "${{LIBCLANG_PATH:-}}" ] && command -v llvm-config >/dev/null 2>&1; then
-  LIBCLANG_PATH="$(llvm-config --libdir)"
+if ! ls "${{LIBCLANG_PATH:-/nonexistent}}"/libclang*.so* >/dev/null 2>&1; then
+  if command -v llvm-config >/dev/null 2>&1; then
+    LIBCLANG_PATH="$(llvm-config --libdir)"
+  else
+    LIBCLANG_PATH="$(dirname "$(find / -name 'libclang*.so*' -print 2>/dev/null | head -n1)")"
+  fi
   export LIBCLANG_PATH
 fi
 {before_phpize_commands}if [ -f config.m4 ] || [ -f pie/config.m4 ]; then
