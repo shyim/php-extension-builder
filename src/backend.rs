@@ -1,5 +1,5 @@
 use crate::BuildConfig;
-use crate::cli::Libc;
+use crate::cli::{BuildKind, Libc};
 use crate::package::php_major_minor;
 use anyhow::{Context, Result, anyhow, bail};
 use std::io::{self, Read, Write};
@@ -84,27 +84,73 @@ impl BuildBackend for NativeDarwin {
         for command in &config.before_phpize_commands {
             run_native_shell(command, &config.build_path)?;
         }
+
+        match config.extension_kind {
+            BuildKind::C => native_build_c(config)?,
+            BuildKind::Rust => native_build_rust(config)?,
+        }
+
+        Ok(metadata)
+    }
+}
+
+fn native_build_c(config: &BuildConfig) -> Result<()> {
+    run_native(
+        CommandSpec::new("phpize", &[], &config.build_path),
+        "phpize",
+    )?;
+    run_native(
+        CommandSpec::new(
+            "./configure",
+            &native_configure_flags(config),
+            &config.build_path,
+        ),
+        "./configure",
+    )?;
+    run_native(CommandSpec::new("make", &[], &config.build_path), "make")
+}
+
+fn native_build_rust(config: &BuildConfig) -> Result<()> {
+    if config.build_path.join("config.m4").is_file()
+        || config.build_path.join("pie").join("config.m4").is_file()
+    {
         run_native(
             CommandSpec::new("phpize", &[], &config.build_path),
             "phpize",
         )?;
-
-        let mut configure_flags = config.configure_flags.clone();
-        if let Some(php_config_path) = &config.php_config
-            && !configure_flags
-                .iter()
-                .any(|flag| flag.starts_with("--with-php-config"))
-        {
-            configure_flags.push(format!("--with-php-config={}", php_config_path.display()));
-        }
         run_native(
-            CommandSpec::new("./configure", &configure_flags, &config.build_path),
+            CommandSpec::new(
+                "./configure",
+                &native_configure_flags(config),
+                &config.build_path,
+            ),
             "./configure",
         )?;
-        run_native(CommandSpec::new("make", &[], &config.build_path), "make")?;
-
-        Ok(metadata)
+        run_native(CommandSpec::new("make", &[], &config.build_path), "make")
+    } else {
+        let mut args = vec!["build".to_string(), "--release".to_string()];
+        if !config.cargo_features.is_empty() {
+            args.push("--features".to_string());
+            args.push(config.cargo_features.join(","));
+        }
+        run_native(
+            CommandSpec::new("cargo", &args, &config.build_path),
+            "cargo build",
+        )
     }
+}
+
+fn native_configure_flags(config: &BuildConfig) -> Vec<String> {
+    let mut configure_flags = config.configure_flags.clone();
+    if let Some(php_config_path) = &config.php_config
+        && !configure_flags
+            .iter()
+            .any(|flag| flag.starts_with("--with-php-config"))
+    {
+        configure_flags.push(format!("--with-php-config={}", php_config_path.display()));
+    }
+
+    configure_flags
 }
 
 fn native_metadata(config: &BuildConfig, php_config: &Path) -> Result<BuildMetadata> {
@@ -302,14 +348,19 @@ fn docker_image(config: &BuildConfig) -> Result<String> {
         .context("--php-version is required when --image is not supplied")?;
 
     let suffix = match (config.libc, config.zts) {
-        (Libc::Glibc, false) => "cli".to_string(),
-        (Libc::Glibc, true) => "zts".to_string(),
-        (Libc::Musl, false) => "cli-alpine".to_string(),
-        (Libc::Musl, true) => "zts-alpine".to_string(),
+        (Libc::Glibc, false) => "cli",
+        (Libc::Glibc, true) => "zts",
+        (Libc::Musl, false) => "cli-alpine",
+        (Libc::Musl, true) => "zts-alpine",
         (Libc::Bsdlibc, _) => bail!("bsdlibc is not a docker linux target"),
     };
 
-    Ok(format!("php:{php_version}-{suffix}"))
+    Ok(match config.extension_kind {
+        BuildKind::C => format!("php:{php_version}-{suffix}"),
+        BuildKind::Rust => {
+            format!("ghcr.io/shyim/php-extension-builder-rust:{php_version}-{suffix}")
+        }
+    })
 }
 
 fn docker_workdir(build_path: &Path) -> Result<String> {
@@ -331,6 +382,13 @@ fn docker_workdir(build_path: &Path) -> Result<String> {
 }
 
 fn docker_script(config: &BuildConfig) -> String {
+    match config.extension_kind {
+        BuildKind::C => docker_script_c(config),
+        BuildKind::Rust => docker_script_rust(config),
+    }
+}
+
+fn docker_script_c(config: &BuildConfig) -> String {
     let before_phpize_commands = docker_before_phpize_commands(&config.before_phpize_commands);
     let configure = if config.configure_flags.is_empty() {
         "./configure".to_string()
@@ -364,7 +422,72 @@ echo "==> Running configure" >&2
 {configure}
 echo "==> Running make" >&2
 make
-echo "==> Collecting build metadata" >&2
+{metadata_tail}"#,
+        metadata_tail = docker_metadata_tail()
+    )
+}
+
+fn docker_script_rust(config: &BuildConfig) -> String {
+    let before_phpize_commands = docker_before_phpize_commands(&config.before_phpize_commands);
+    let configure = if config.configure_flags.is_empty() {
+        "./configure".to_string()
+    } else {
+        format!(
+            "./configure {}",
+            config
+                .configure_flags
+                .iter()
+                .map(|flag| shell_quote(flag))
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    };
+    let cargo_build = if config.cargo_features.is_empty() {
+        "cargo build --release".to_string()
+    } else {
+        format!(
+            "cargo build --release --features {}",
+            shell_quote(&config.cargo_features.join(","))
+        )
+    };
+    let debian_package_args = shell_args(&config.apt_packages);
+    let alpine_package_args = shell_args(&config.apk_packages);
+
+    format!(
+        r#"set -eu
+echo "==> Installing build dependencies" >&2
+if command -v apk >/dev/null 2>&1; then
+  apk add --no-cache ${{PHPIZE_DEPS:-autoconf dpkg-dev dpkg file g++ gcc libc-dev make pkgconf re2c}} clang clang-dev llvm-dev {alpine_package_args}
+elif command -v apt-get >/dev/null 2>&1; then
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${{PHPIZE_DEPS:-autoconf dpkg-dev file g++ gcc libc-dev make pkg-config re2c}} clang libclang-dev {debian_package_args}
+  rm -rf /var/lib/apt/lists/*
+fi
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "error: cargo not found; use a Rust-enabled image such as ghcr.io/shyim/php-extension-builder-rust" >&2
+  exit 1
+fi
+if [ -z "${{LIBCLANG_PATH:-}}" ] && command -v llvm-config >/dev/null 2>&1; then
+  LIBCLANG_PATH="$(llvm-config --libdir)"
+  export LIBCLANG_PATH
+fi
+{before_phpize_commands}if [ -f config.m4 ] || [ -f pie/config.m4 ]; then
+  echo "==> Detected PIE build files (phpize mode)" >&2
+  phpize
+  {configure}
+  make
+else
+  echo "==> No PIE build files (cargo mode)" >&2
+  {cargo_build}
+fi
+{metadata_tail}"#,
+        metadata_tail = docker_metadata_tail()
+    )
+}
+
+fn docker_metadata_tail() -> String {
+    format!(
+        r#"echo "==> Collecting build metadata" >&2
 php_binary="$(php-config --php-binary)"
 if [ "$php_binary" = "NONE" ]; then
   php_binary=php
@@ -477,7 +600,7 @@ mod tests {
     };
     use crate::BuildConfig;
     use crate::backend::docker_image;
-    use crate::cli::{ArtifactKind, Libc, TargetOs};
+    use crate::cli::{ArtifactKind, BuildKind, Libc, TargetOs};
     use std::path::Path;
     use std::path::PathBuf;
 
@@ -497,6 +620,8 @@ mod tests {
             out_dir: PathBuf::from("."),
             image: None,
             php_config: None,
+            extension_kind: BuildKind::C,
+            cargo_features: Vec::new(),
         }
     }
 
@@ -518,6 +643,53 @@ mod tests {
             docker_image(&linux_config(Libc::Musl, true)).unwrap(),
             "php:8.3-zts-alpine"
         );
+    }
+
+    #[test]
+    fn selects_rust_ghcr_images() {
+        let mut config = linux_config(Libc::Glibc, false);
+        config.extension_kind = BuildKind::Rust;
+        assert_eq!(
+            docker_image(&config).unwrap(),
+            "ghcr.io/shyim/php-extension-builder-rust:8.3-cli"
+        );
+
+        let mut config = linux_config(Libc::Musl, true);
+        config.extension_kind = BuildKind::Rust;
+        assert_eq!(
+            docker_image(&config).unwrap(),
+            "ghcr.io/shyim/php-extension-builder-rust:8.3-zts-alpine"
+        );
+    }
+
+    #[test]
+    fn rust_image_respects_explicit_override() {
+        let mut config = linux_config(Libc::Glibc, false);
+        config.extension_kind = BuildKind::Rust;
+        config.image = Some("ghcr.io/acme/custom:8.3".to_string());
+
+        assert_eq!(docker_image(&config).unwrap(), "ghcr.io/acme/custom:8.3");
+    }
+
+    #[test]
+    fn rust_script_branches_on_pie_and_runs_cargo() {
+        let mut config = linux_config(Libc::Glibc, false);
+        config.extension_kind = BuildKind::Rust;
+        config.cargo_features = vec!["closure".to_string(), "anyhow".to_string()];
+        let script = docker_script(&config);
+
+        assert!(script.contains("if [ -f config.m4 ] || [ -f pie/config.m4 ]; then"));
+        assert!(script.contains("cargo build --release --features 'closure,anyhow'"));
+        assert!(script.contains("clang"));
+    }
+
+    #[test]
+    fn rust_script_without_features_runs_plain_cargo() {
+        let mut config = linux_config(Libc::Glibc, false);
+        config.extension_kind = BuildKind::Rust;
+        let script = docker_script(&config);
+
+        assert!(script.contains("\n  cargo build --release\n"));
     }
 
     #[test]

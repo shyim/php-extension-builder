@@ -1,0 +1,36 @@
+name: Build Rust builder images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docker/Dockerfile
+      - docker-bake.hcl
+      - .github/workflows/docker-images.yml
+  workflow_dispatch:
+    inputs:
+      push:
+        description: Push images to GHCR
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    uses: docker/github-builder/.github/workflows/bake.yml@main
+    with:
+      target: image
+      files: docker-bake.hcl
+      output: image
+      push: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.push) }}
+      setup-qemu: true
+      sbom: true
+      set: |
+        *.args.GIT_SHA=${{ github.sha }}
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}

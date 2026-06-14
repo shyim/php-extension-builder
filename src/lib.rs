@@ -3,15 +3,16 @@ mod cli;
 mod composer;
 mod deb_package;
 mod package;
+mod rust_ext;
 mod zip_package;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use backend::{BuildBackend, DockerLinux, NativeDarwin};
-use cli::{ArtifactKind, BuildArgs, Libc, TargetOs};
+use cli::{ArtifactKind, BuildArgs, BuildKind, Libc, TargetOs};
 pub use cli::{Cli, Commands};
 use deb_package::DebPackageDetails;
 use package::PackageDetails;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Runs the requested CLI command.
 ///
@@ -47,10 +48,7 @@ pub fn build(args: BuildArgs) -> Result<Vec<PathBuf>> {
         TargetOs::Darwin => NativeDarwin.build(&config)?,
     };
 
-    let so_path = config
-        .build_path
-        .join("modules")
-        .join(format!("{extension_name}.so"));
+    let so_path = resolve_so_path(&config, &extension_name)?;
     let mut output_paths = Vec::new();
 
     for artifact in &config.artifacts {
@@ -92,6 +90,62 @@ pub fn build(args: BuildArgs) -> Result<Vec<PathBuf>> {
     Ok(output_paths)
 }
 
+fn resolve_so_path(config: &BuildConfig, extension_name: &str) -> Result<PathBuf> {
+    let modules = config
+        .build_path
+        .join("modules")
+        .join(format!("{extension_name}.so"));
+
+    if config.extension_kind == BuildKind::C {
+        return Ok(modules);
+    }
+
+    let mut candidates = vec![
+        modules,
+        config.build_path.join(format!("{extension_name}.so")),
+    ];
+
+    if let Some(crate_name) = rust_ext::crate_name(&config.build_path) {
+        let libraries = [
+            format!("lib{crate_name}.so"),
+            format!("lib{crate_name}.dylib"),
+        ];
+        for library in &libraries {
+            candidates.push(
+                config
+                    .build_path
+                    .join("target")
+                    .join("release")
+                    .join(library),
+            );
+            if let Some(workspace_target) = workspace_target_dir(&config.build_path) {
+                candidates.push(workspace_target.join("release").join(library));
+            }
+        }
+    }
+
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.exists())
+        .ok_or_else(|| {
+            anyhow!(
+                "could not locate the built .so for Rust extension '{extension_name}' under {}",
+                config.build_path.display()
+            )
+        })
+}
+
+fn workspace_target_dir(build_path: &Path) -> Option<PathBuf> {
+    for ancestor in build_path.ancestors().skip(1) {
+        let target = ancestor.join("target");
+        if target.is_dir() {
+            return Some(target);
+        }
+    }
+
+    None
+}
+
 #[derive(Debug, Clone)]
 pub struct BuildConfig {
     pub package_version: String,
@@ -108,6 +162,8 @@ pub struct BuildConfig {
     pub out_dir: PathBuf,
     pub image: Option<String>,
     pub php_config: Option<PathBuf>,
+    pub extension_kind: BuildKind,
+    pub cargo_features: Vec<String>,
 }
 
 impl TryFrom<BuildArgs> for BuildConfig {
@@ -144,6 +200,22 @@ impl TryFrom<BuildArgs> for BuildConfig {
             bail!("--apt-package and --apk-package are only supported for linux Docker builds");
         }
 
+        let extension_kind = match args.build_kind {
+            Some(kind) => kind,
+            None if rust_ext::is_rust_extension(&args.build_path)? => BuildKind::Rust,
+            None => BuildKind::C,
+        };
+
+        if extension_kind == BuildKind::Rust {
+            if !args.configure_flag.is_empty() {
+                bail!(
+                    "--configure-flag is not supported for Rust builds; use --cargo-feature instead"
+                );
+            }
+        } else if !args.cargo_feature.is_empty() {
+            bail!("--cargo-feature is only supported for Rust builds");
+        }
+
         if artifacts.contains(&ArtifactKind::Deb) {
             if args.target_os != TargetOs::Linux {
                 bail!("--artifact deb is only supported for linux builds");
@@ -173,6 +245,8 @@ impl TryFrom<BuildArgs> for BuildConfig {
             out_dir: args.out_dir,
             image: args.image,
             php_config: args.php_config,
+            extension_kind,
+            cargo_features: args.cargo_feature,
         })
     }
 }
@@ -195,7 +269,7 @@ fn selected_artifacts(artifacts: Vec<ArtifactKind>) -> Vec<ArtifactKind> {
 #[cfg(test)]
 mod tests {
     use super::{BuildConfig, selected_artifacts};
-    use crate::cli::{ArtifactKind, BuildArgs, Libc, TargetOs};
+    use crate::cli::{ArtifactKind, BuildArgs, BuildKind, Libc, TargetOs};
     use std::path::PathBuf;
 
     fn args(target_os: TargetOs) -> BuildArgs {
@@ -214,6 +288,8 @@ mod tests {
             out_dir: PathBuf::from("."),
             image: None,
             php_config: None,
+            build_kind: None,
+            cargo_feature: Vec::new(),
         }
     }
 
@@ -322,6 +398,62 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "--artifact deb is only supported for non-ZTS linux builds"
+        );
+    }
+
+    #[test]
+    fn defaults_to_c_extension_kind() {
+        let config = BuildConfig::try_from(args(TargetOs::Linux)).unwrap();
+
+        assert_eq!(config.extension_kind, BuildKind::C);
+    }
+
+    #[test]
+    fn honors_explicit_rust_build_kind() {
+        let mut build_args = args(TargetOs::Linux);
+        build_args.build_kind = Some(BuildKind::Rust);
+        build_args.cargo_feature = vec!["closure".to_string()];
+
+        let config = BuildConfig::try_from(build_args).unwrap();
+
+        assert_eq!(config.extension_kind, BuildKind::Rust);
+        assert_eq!(config.cargo_features, vec!["closure"]);
+    }
+
+    #[test]
+    fn allows_rust_on_darwin() {
+        let mut build_args = args(TargetOs::Darwin);
+        build_args.php_version = None;
+        build_args.build_kind = Some(BuildKind::Rust);
+
+        let config = BuildConfig::try_from(build_args).unwrap();
+
+        assert_eq!(config.extension_kind, BuildKind::Rust);
+        assert_eq!(config.target_os, TargetOs::Darwin);
+    }
+
+    #[test]
+    fn rejects_configure_flag_for_rust() {
+        let mut build_args = args(TargetOs::Linux);
+        build_args.build_kind = Some(BuildKind::Rust);
+        build_args.configure_flag = vec!["--enable-foo".to_string()];
+
+        let error = BuildConfig::try_from(build_args).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "--configure-flag is not supported for Rust builds; use --cargo-feature instead"
+        );
+    }
+
+    #[test]
+    fn rejects_cargo_feature_for_c() {
+        let mut build_args = args(TargetOs::Linux);
+        build_args.cargo_feature = vec!["closure".to_string()];
+
+        let error = BuildConfig::try_from(build_args).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "--cargo-feature is only supported for Rust builds"
         );
     }
 }
