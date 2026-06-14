@@ -6,6 +6,10 @@ on:
     paths:
       - docker/Dockerfile
       - .github/workflows/docker-images.yml
+  pull_request:
+    paths:
+      - docker/Dockerfile
+      - .github/workflows/docker-images.yml
   schedule:
     # Weekly rebuild to pick up upstream php:* base image updates.
     - cron: "0 6 * * 1"
@@ -19,8 +23,6 @@ on:
 permissions:
   contents: read
   packages: write
-  id-token: write
-  attestations: write
 
 jobs:
   build:
@@ -30,7 +32,7 @@ jobs:
         php-version: ["8.2", "8.3", "8.4", "8.5"]
         suffix: [cli, cli-alpine, zts, zts-alpine]
     name: "PHP ${{ matrix.php-version }} / ${{ matrix.suffix }}"
-    uses: docker/github-builder/.github/workflows/build.yml@main
+    uses: docker/github-builder/.github/workflows/build.yml@5f637c833aa76bc99372a1dc9a6f8bcd8056fb85 # v1.12.0
     with:
       output: image
       file: docker/Dockerfile
@@ -43,11 +45,8 @@ jobs:
       meta-tags: |
         type=raw,value=${{ matrix.php-version }}-${{ matrix.suffix }}
         type=raw,value=${{ matrix.php-version }}-${{ matrix.suffix }}-${{ github.sha }}
-      push: ${{ github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.push) }}
+      push: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && inputs.push) }}
       sbom: true
+      sign: "false"
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
-      registry-auths: |
-        ghcr.io:
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
