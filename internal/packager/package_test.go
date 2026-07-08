@@ -2,6 +2,8 @@ package packager
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCreatesPiePackageFilename(t *testing.T) {
@@ -16,14 +18,9 @@ func TestCreatesPiePackageFilename(t *testing.T) {
 		ZtsSuffix:      "-zts",
 	}
 
-	expected := "php_foo-1.2.3_php8.3-x86_64-linux-glibc-debug-zts.zip"
-	if details.Filename() != expected {
-		t.Errorf("expected %q, got %q", expected, details.Filename())
-	}
+	assert.Equal(t, "php_foo-1.2.3_php8.3-x86_64-linux-glibc-debug-zts.zip", details.Filename())
 }
 
 func TestTrimsPhpVersionToMajorMinor(t *testing.T) {
-	if PhpMajorMinor("8.3.10-whatever\n") != "8.3" {
-		t.Errorf("expected %q, got %q", "8.3", PhpMajorMinor("8.3.10-whatever\n"))
-	}
+	assert.Equal(t, "8.3", PhpMajorMinor("8.3.10-whatever\n"))
 }

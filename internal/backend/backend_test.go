@@ -2,10 +2,10 @@ package backend
 
 import (
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/shyim/php-extension-builder/internal/config"
+	"github.com/stretchr/testify/assert"
 )
 
 func linuxConfig(libc config.Libc, zts bool) *config.BuildConfig {
@@ -31,40 +31,34 @@ func linuxConfig(libc config.Libc, zts bool) *config.BuildConfig {
 
 func TestSelectsOfficialPhpImages(t *testing.T) {
 	img, err := dockerImage(linuxConfig(config.LibcGlibc, false))
-	if err != nil || img != "php:8.3-cli" {
-		t.Errorf("expected php:8.3-cli, got %q (err: %v)", img, err)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, "php:8.3-cli", img)
 
 	img, err = dockerImage(linuxConfig(config.LibcGlibc, true))
-	if err != nil || img != "php:8.3-zts" {
-		t.Errorf("expected php:8.3-zts, got %q (err: %v)", img, err)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, "php:8.3-zts", img)
 
 	img, err = dockerImage(linuxConfig(config.LibcMusl, false))
-	if err != nil || img != "php:8.3-cli-alpine" {
-		t.Errorf("expected php:8.3-cli-alpine, got %q (err: %v)", img, err)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, "php:8.3-cli-alpine", img)
 
 	img, err = dockerImage(linuxConfig(config.LibcMusl, true))
-	if err != nil || img != "php:8.3-zts-alpine" {
-		t.Errorf("expected php:8.3-zts-alpine, got %q (err: %v)", img, err)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, "php:8.3-zts-alpine", img)
 }
 
 func TestSelectsRustGhcrImages(t *testing.T) {
 	cfg := linuxConfig(config.LibcGlibc, false)
 	cfg.ExtensionKind = config.BuildKindRust
 	img, err := dockerImage(cfg)
-	if err != nil || img != "ghcr.io/shyim/php-extension-builder-rust:8.3-cli" {
-		t.Errorf("expected Rust glibc image, got %q (err: %v)", img, err)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, "ghcr.io/shyim/php-extension-builder-rust:8.3-cli", img)
 
 	cfg2 := linuxConfig(config.LibcMusl, true)
 	cfg2.ExtensionKind = config.BuildKindRust
 	img, err = dockerImage(cfg2)
-	if err != nil || img != "ghcr.io/shyim/php-extension-builder-rust:8.3-zts-alpine" {
-		t.Errorf("expected Rust musl ZTS image, got %q (err: %v)", img, err)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, "ghcr.io/shyim/php-extension-builder-rust:8.3-zts-alpine", img)
 }
 
 func TestRustImageRespectsExplicitOverride(t *testing.T) {
@@ -72,9 +66,8 @@ func TestRustImageRespectsExplicitOverride(t *testing.T) {
 	cfg.ExtensionKind = config.BuildKindRust
 	cfg.Image = "ghcr.io/acme/custom:8.3"
 	img, err := dockerImage(cfg)
-	if err != nil || img != "ghcr.io/acme/custom:8.3" {
-		t.Errorf("expected override, got %q (err: %v)", img, err)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, "ghcr.io/acme/custom:8.3", img)
 }
 
 func TestRustScriptBranchesOnPieAndRunsCargo(t *testing.T) {
@@ -83,15 +76,9 @@ func TestRustScriptBranchesOnPieAndRunsCargo(t *testing.T) {
 	cfg.CargoFeatures = []string{"closure", "anyhow"}
 	script := dockerScript(cfg)
 
-	if !strings.Contains(script, "if [ -f config.m4 ] || [ -f pie/config.m4 ]; then") {
-		t.Error("missing config.m4 branch")
-	}
-	if !strings.Contains(script, "cargo build --release --features 'closure,anyhow'") {
-		t.Error("missing features build command")
-	}
-	if !strings.Contains(script, "clang") {
-		t.Error("missing clang dependency check or package install")
-	}
+	assert.Contains(t, script, "if [ -f config.m4 ] || [ -f pie/config.m4 ]; then")
+	assert.Contains(t, script, "cargo build --release --features 'closure,anyhow'")
+	assert.Contains(t, script, "clang")
 }
 
 func TestRustScriptWithoutFeaturesRunsPlainCargo(t *testing.T) {
@@ -99,21 +86,17 @@ func TestRustScriptWithoutFeaturesRunsPlainCargo(t *testing.T) {
 	cfg.ExtensionKind = config.BuildKindRust
 	script := dockerScript(cfg)
 
-	if !strings.Contains(script, "\n  cargo build --release\n") {
-		t.Error("missing plain cargo build command")
-	}
+	assert.Contains(t, script, "\n  cargo build --release\n")
 }
 
 func TestDockerWorkdirIsUnderWorkspace(t *testing.T) {
 	wd, err := dockerWorkdir(".")
-	if err != nil || wd != "/workspace" {
-		t.Errorf("expected /workspace, got %q (err: %v)", wd, err)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, "/workspace", wd)
 
 	wd, err = dockerWorkdir("src/php/ext/grpc")
-	if err != nil || wd != "/workspace/src/php/ext/grpc" {
-		t.Errorf("expected /workspace/src/php/ext/grpc, got %q (err: %v)", wd, err)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, "/workspace/src/php/ext/grpc", wd)
 }
 
 func TestDockerWorkdirRejectsAbsolutePaths(t *testing.T) {
@@ -122,9 +105,7 @@ func TestDockerWorkdirRejectsAbsolutePaths(t *testing.T) {
 		absPath = "C:\\tmp\\ext"
 	}
 	_, err := dockerWorkdir(absPath)
-	if err == nil {
-		t.Error("expected error for absolute path, got nil")
-	}
+	assert.Error(t, err)
 }
 
 func TestDockerScriptQuotesConfigureFlags(t *testing.T) {
@@ -132,9 +113,7 @@ func TestDockerScriptQuotesConfigureFlags(t *testing.T) {
 	cfg.ConfigureFlags = []string{"--enable-test", "--with-name=O'Hara"}
 	script := dockerScript(cfg)
 
-	if !strings.Contains(script, "./configure '--enable-test' '--with-name=O'\\''Hara'") {
-		t.Errorf("missing quoted configure flags, got: %s", script)
-	}
+	assert.Contains(t, script, "./configure '--enable-test' '--with-name=O'\\''Hara'")
 }
 
 func TestDockerScriptAddsCustomDistroPackages(t *testing.T) {
@@ -143,12 +122,8 @@ func TestDockerScriptAddsCustomDistroPackages(t *testing.T) {
 	cfg.ApkPackages = []string{"zstd-dev", "foo-dev"}
 	script := dockerScript(cfg)
 
-	if !strings.Contains(script, "apk add --no-cache ${PHPIZE_DEPS:-autoconf dpkg-dev dpkg file g++ gcc libc-dev make pkgconf re2c} 'zstd-dev' 'foo-dev'") {
-		t.Error("missing alpine custom packages")
-	}
-	if !strings.Contains(script, "apt-get install -y --no-install-recommends ${PHPIZE_DEPS:-autoconf dpkg-dev file g++ gcc libc-dev make pkg-config re2c} 'libzstd-dev' 'libfoo=1.2'") {
-		t.Error("missing debian custom packages")
-	}
+	assert.Contains(t, script, "apk add --no-cache ${PHPIZE_DEPS:-autoconf dpkg-dev dpkg file g++ gcc libc-dev make pkgconf re2c} 'zstd-dev' 'foo-dev'")
+	assert.Contains(t, script, "apt-get install -y --no-install-recommends ${PHPIZE_DEPS:-autoconf dpkg-dev file g++ gcc libc-dev make pkg-config re2c} 'libzstd-dev' 'libfoo=1.2'")
 }
 
 func TestDockerScriptRunsBeforePhpizeCommands(t *testing.T) {
@@ -156,15 +131,9 @@ func TestDockerScriptRunsBeforePhpizeCommands(t *testing.T) {
 	cfg.BeforePhpizeCommands = []string{"composer install --no-dev", "./autogen.sh --force"}
 	script := dockerScript(cfg)
 
-	if !strings.Contains(script, "echo '==> Running before phpize command: composer install --no-dev' >&2\ncomposer install --no-dev") {
-		t.Error("missing first before command")
-	}
-	if !strings.Contains(script, "echo '==> Running before phpize command: ./autogen.sh --force' >&2\n./autogen.sh --force") {
-		t.Error("missing second before command")
-	}
-	if !strings.Contains(script, "./autogen.sh --force\necho \"==> Running phpize\" >&2\nphpize") {
-		t.Error("wrong execution order")
-	}
+	assert.Contains(t, script, "echo '==> Running before phpize command: composer install --no-dev' >&2\ncomposer install --no-dev")
+	assert.Contains(t, script, "echo '==> Running before phpize command: ./autogen.sh --force' >&2\n./autogen.sh --force")
+	assert.Contains(t, script, "./autogen.sh --force\necho \"==> Running phpize\" >&2\nphpize")
 }
 
 func TestNormalizesArchitectureNames(t *testing.T) {
@@ -181,9 +150,8 @@ func TestNormalizesArchitectureNames(t *testing.T) {
 
 	for _, tc := range tests {
 		res, err := normalizeArch(tc.input)
-		if err != nil || res != tc.expected {
-			t.Errorf("normalizeArch(%q) = %q, %v; expected %q, nil", tc.input, res, err, tc.expected)
-		}
+		assert.NoError(t, err)
+		assert.Equal(t, tc.expected, res)
 	}
 }
 
@@ -196,13 +164,7 @@ func TestValidatesRequestedPhpVersion(t *testing.T) {
 	}
 
 	err := ValidateRequestedMetadata(cfg, metadata)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	expected := "requested PHP 8.3, but selected PHP reports 8.2"
-	if err.Error() != expected {
-		t.Errorf("expected %q, got %q", expected, err.Error())
-	}
+	assert.ErrorContains(t, err, "requested PHP 8.3, but selected PHP reports 8.2")
 }
 
 func TestValidatesRequestedZtsMode(t *testing.T) {
@@ -214,13 +176,7 @@ func TestValidatesRequestedZtsMode(t *testing.T) {
 	}
 
 	err := ValidateRequestedMetadata(cfg, metadata)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	expected := "--zts was requested, but selected PHP is non-ZTS"
-	if err.Error() != expected {
-		t.Errorf("expected %q, got %q", expected, err.Error())
-	}
+	assert.ErrorContains(t, err, "--zts was requested, but selected PHP is non-ZTS")
 }
 
 func TestValidatesImplicitNtsMode(t *testing.T) {
@@ -233,11 +189,5 @@ func TestValidatesImplicitNtsMode(t *testing.T) {
 	}
 
 	err := ValidateRequestedMetadata(cfg, metadata)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	expected := "non-ZTS build was requested, but selected PHP is ZTS; pass --zts"
-	if err.Error() != expected {
-		t.Errorf("expected %q, got %q", expected, err.Error())
-	}
+	assert.ErrorContains(t, err, "non-ZTS build was requested, but selected PHP is ZTS; pass --zts")
 }

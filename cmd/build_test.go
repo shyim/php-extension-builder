@@ -1,10 +1,10 @@
 package cmd
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
 )
 
 func runBuildCmd(args []string) error {
@@ -44,14 +44,8 @@ func TestAcceptsRepeatedHyphenatedConfigureFlags(t *testing.T) {
 		"--configure-flag", "--enable-example-pie-extension",
 		"--configure-flag", "--with-hello-name=FROM_CLI",
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	expected := []string{"--enable-example-pie-extension", "--with-hello-name=FROM_CLI"}
-	if !reflect.DeepEqual(buildArgs.ConfigureFlag, expected) {
-		t.Errorf("expected %v, got %v", expected, buildArgs.ConfigureFlag)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"--enable-example-pie-extension", "--with-hello-name=FROM_CLI"}, buildArgs.ConfigureFlag)
 }
 
 func TestAcceptsCustomAptAndApkPackages(t *testing.T) {
@@ -62,19 +56,9 @@ func TestAcceptsCustomAptAndApkPackages(t *testing.T) {
 		"--apt-package", "libzstd-dev",
 		"--apk-package", "zstd-dev",
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	expectedApt := []string{"libzstd-dev"}
-	expectedApk := []string{"zstd-dev"}
-
-	if !reflect.DeepEqual(buildArgs.AptPackage, expectedApt) {
-		t.Errorf("expected apt package %v, got %v", expectedApt, buildArgs.AptPackage)
-	}
-	if !reflect.DeepEqual(buildArgs.ApkPackage, expectedApk) {
-		t.Errorf("expected apk package %v, got %v", expectedApk, buildArgs.ApkPackage)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"libzstd-dev"}, buildArgs.AptPackage)
+	assert.Equal(t, []string{"zstd-dev"}, buildArgs.ApkPackage)
 }
 
 func TestAcceptsRepeatedBeforePhpizeCommands(t *testing.T) {
@@ -85,14 +69,8 @@ func TestAcceptsRepeatedBeforePhpizeCommands(t *testing.T) {
 		"--before-phpize-command", "composer install --no-dev",
 		"--before-phpize-command", "./autogen.sh --force",
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	expected := []string{"composer install --no-dev", "./autogen.sh --force"}
-	if !reflect.DeepEqual(buildArgs.BeforePhpizeCommand, expected) {
-		t.Errorf("expected %v, got %v", expected, buildArgs.BeforePhpizeCommand)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"composer install --no-dev", "./autogen.sh --force"}, buildArgs.BeforePhpizeCommand)
 }
 
 func TestAcceptsRepeatedCargoFeatures(t *testing.T) {
@@ -103,14 +81,8 @@ func TestAcceptsRepeatedCargoFeatures(t *testing.T) {
 		"--cargo-feature", "closure",
 		"--cargo-feature", "anyhow",
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	expected := []string{"closure", "anyhow"}
-	if !reflect.DeepEqual(buildArgs.CargoFeature, expected) {
-		t.Errorf("expected %v, got %v", expected, buildArgs.CargoFeature)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"closure", "anyhow"}, buildArgs.CargoFeature)
 }
 
 func TestAcceptsRepeatedArtifacts(t *testing.T) {
@@ -121,12 +93,6 @@ func TestAcceptsRepeatedArtifacts(t *testing.T) {
 		"--artifact", "zip",
 		"--artifact", "deb",
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	expected := []string{"zip", "deb"}
-	if !reflect.DeepEqual(buildArgs.Artifact, expected) {
-		t.Errorf("expected %v, got %v", expected, buildArgs.Artifact)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"zip", "deb"}, buildArgs.Artifact)
 }

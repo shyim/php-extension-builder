@@ -10,6 +10,9 @@ import (
 	"path"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreatesDebianPackageFilename(t *testing.T) {
@@ -22,57 +25,47 @@ func TestCreatesDebianPackageFilename(t *testing.T) {
 	}
 
 	name, err := d.Filename()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if name != "php8.3-foo_1.2.3_amd64.deb" {
-		t.Errorf("expected php8.3-foo_1.2.3_amd64.deb, got %q", name)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, "php8.3-foo_1.2.3_amd64.deb", name)
 }
 
 func TestNormalizesExtensionNameForDebianPackageName(t *testing.T) {
-	if debianPackageComponent("Test_Ext") != "test-ext" {
-		t.Errorf("expected test-ext, got %q", debianPackageComponent("Test_Ext"))
-	}
+	assert.Equal(t, "test-ext", debianPackageComponent("Test_Ext"))
 }
 
 func TestMapsDebianArchitectures(t *testing.T) {
-	if arch, _ := debianArchitecture("x86_64"); arch != "amd64" {
-		t.Errorf("expected amd64, got %q", arch)
-	}
-	if arch, _ := debianArchitecture("arm64"); arch != "arm64" {
-		t.Errorf("expected arm64, got %q", arch)
-	}
-	if arch, _ := debianArchitecture("x86"); arch != "i386" {
-		t.Errorf("expected i386, got %q", arch)
-	}
-	if _, err := debianArchitecture("sparc"); err == nil {
-		t.Error("expected error for sparc, got nil")
-	}
+	arch, err := debianArchitecture("x86_64")
+	assert.NoError(t, err)
+	assert.Equal(t, "amd64", arch)
+
+	arch, err = debianArchitecture("arm64")
+	assert.NoError(t, err)
+	assert.Equal(t, "arm64", arch)
+
+	arch, err = debianArchitecture("x86")
+	assert.NoError(t, err)
+	assert.Equal(t, "i386", arch)
+
+	_, err = debianArchitecture("sparc")
+	assert.Error(t, err)
 }
 
 func TestExtractsPhpApiFromExtensionDir(t *testing.T) {
 	api, err := phpApiFromExtensionDir("/usr/local/lib/php/extensions/no-debug-non-zts-20230831")
-	if err != nil || api != "20230831" {
-		t.Errorf("expected 20230831, got %q (err: %v)", api, err)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, "20230831", api)
+
 	api, err = phpApiFromExtensionDir("/usr/lib/php/20230831")
-	if err != nil || api != "20230831" {
-		t.Errorf("expected 20230831, got %q (err: %v)", api, err)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, "20230831", api)
+
 	_, err = phpApiFromExtensionDir("/usr/lib/php/extensions/debug")
-	if err == nil {
-		t.Error("expected error, got nil")
-	}
+	assert.Error(t, err)
 }
 
 func TestCreatesMaintainerScripts(t *testing.T) {
-	if !strings.Contains(postinstScript("foo", "8.3"), "phpenmod -v '8.3' 'foo' || true") {
-		t.Error("missing phpenmod call")
-	}
-	if !strings.Contains(prermScript("foo", "8.3"), "phpdismod -v '8.3' 'foo' || true") {
-		t.Error("missing phpdismod call")
-	}
+	assert.Contains(t, postinstScript("foo", "8.3"), "phpenmod -v '8.3' 'foo' || true")
+	assert.Contains(t, prermScript("foo", "8.3"), "phpdismod -v '8.3' 'foo' || true")
 }
 
 func TestCreatesDebArchiveMembersAndPayloads(t *testing.T) {
@@ -85,68 +78,41 @@ func TestCreatesDebArchiveMembersAndPayloads(t *testing.T) {
 	}
 
 	tmpSo, err := os.CreateTemp("", "fake-so-*")
-	if err != nil {
-		t.Fatalf("failed to create temp file: %v", err)
-	}
+	require.NoError(t, err)
 	defer os.Remove(tmpSo.Name())
 	defer tmpSo.Close()
-	if _, err := tmpSo.Write([]byte("fake-so")); err != nil {
-		t.Fatalf("failed to write fake-so: %v", err)
-	}
+
+	_, err = tmpSo.Write([]byte("fake-so"))
+	require.NoError(t, err)
 
 	tmpDeb, err := os.CreateTemp("", "output-deb-*")
-	if err != nil {
-		t.Fatalf("failed to create temp file: %v", err)
-	}
+	require.NoError(t, err)
 	defer os.Remove(tmpDeb.Name())
-	tmpDeb.Close() // Close so CreateDeb can write to it
+	tmpDeb.Close()
 
 	err = CreateDeb(tmpSo.Name(), tmpDeb.Name(), d)
-	if err != nil {
-		t.Fatalf("failed to build package: %v", err)
-	}
+	assert.NoError(t, err)
 
 	pkg, err := os.ReadFile(tmpDeb.Name())
-	if err != nil {
-		t.Fatalf("failed to read generated deb package: %v", err)
-	}
+	require.NoError(t, err)
 
 	members, err := parseAr(pkg)
-	if err != nil {
-		t.Fatalf("failed to parse ar: %v", err)
-	}
+	require.NoError(t, err)
 
-	if string(members["debian-binary"]) != "2.0\n" {
-		t.Errorf("expected 2.0\\n, got %q", string(members["debian-binary"]))
-	}
+	assert.Equal(t, "2.0\n", string(members["debian-binary"]))
 
 	controlFiles, err := tarFiles(members["control.tar.gz"])
-	if err != nil {
-		t.Fatalf("failed to parse control.tar.gz: %v", err)
-	}
+	require.NoError(t, err)
 
-	if !strings.Contains(string(controlFiles["control"]), "Package: php8.3-foo") {
-		t.Error("control file does not contain Package: php8.3-foo")
-	}
-	if _, ok := controlFiles["postinst"]; !ok {
-		t.Error("missing postinst script")
-	}
-	if _, ok := controlFiles["prerm"]; !ok {
-		t.Error("missing prerm script")
-	}
+	assert.Contains(t, string(controlFiles["control"]), "Package: php8.3-foo")
+	assert.Contains(t, controlFiles, "postinst")
+	assert.Contains(t, controlFiles, "prerm")
 
 	dataFiles, err := tarFiles(members["data.tar.gz"])
-	if err != nil {
-		t.Fatalf("failed to parse data.tar.gz: %v", err)
-	}
+	require.NoError(t, err)
 
-	if string(dataFiles["usr/lib/php/20230831/foo.so"]) != "fake-so" {
-		t.Errorf("expected fake-so, got %q", string(dataFiles["usr/lib/php/20230831/foo.so"]))
-	}
-
-	if string(dataFiles["etc/php/8.3/mods-available/foo.ini"]) != "extension=foo.so\n" {
-		t.Errorf("expected extension=foo.so\\n, got %q", string(dataFiles["etc/php/8.3/mods-available/foo.ini"]))
-	}
+	assert.Equal(t, "fake-so", string(dataFiles["usr/lib/php/20230831/foo.so"]))
+	assert.Equal(t, "extension=foo.so\n", string(dataFiles["etc/php/8.3/mods-available/foo.ini"]))
 }
 
 func parseAr(data []byte) (map[string][]byte, error) {
@@ -204,7 +170,6 @@ func tarFiles(gzipTar []byte) (map[string][]byte, error) {
 		if _, err := io.Copy(&content, tr); err != nil {
 			return nil, err
 		}
-		// Clean and normalize name to match both "./name" and "name"
 		name := path.Clean(header.Name)
 		name = strings.TrimPrefix(name, ".")
 		name = strings.TrimPrefix(name, "/")
