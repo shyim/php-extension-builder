@@ -1,6 +1,6 @@
 # Generate Pre-Packaged Binaries for PHP Extensions
 
-`php-extension-builder` is a Rust CLI for building pre-packaged binary artifacts
+`php-extension-builder` is a Go CLI for building pre-packaged binary artifacts
 for [PIE (PHP Installer for Extensions)](https://github.com/php/pie) extensions.
 
 It builds one target per invocation and writes requested artifacts containing the
@@ -10,13 +10,13 @@ Pass repeated `--artifact` flags to request additional formats such as `.deb`.
 ## Install
 
 ```bash
-cargo install --path .
+go install .
 ```
 
 Or run it directly from a checkout:
 
 ```bash
-cargo run -- build --help
+go run main.go build --help
 ```
 
 Prebuilt CLI binaries are published on GitHub Releases for:
@@ -27,7 +27,7 @@ Prebuilt CLI binaries are published on GitHub Releases for:
 - `aarch64-unknown-linux-gnu`
 
 Release publishing is handled by GoReleaser. Pushing a tag like `v0.1.0`
-triggers the release workflow, builds the CLI binaries with `cargo zigbuild`,
+triggers the release workflow, builds the CLI binaries with GoReleaser,
 uploads `.tar.gz` archives, and publishes `checksums.txt`.
 
 In GitHub Actions, prefer installing one of those release archives instead of
@@ -307,7 +307,7 @@ jobs:
           # libs: zlib
 ```
 
-Use this Rust CLI for Linux and macOS packages, and use
+Use this Go CLI for Linux and macOS packages, and use
 `php/php-windows-builder` for Windows DLL artifacts. If you upload Windows
 artifacts to GitHub releases, prefer the builder's own release action so the
 Windows artifact format stays aligned with that project.
