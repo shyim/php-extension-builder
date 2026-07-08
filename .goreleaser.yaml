@@ -4,18 +4,14 @@ project_name: php-extension-builder
 
 builds:
   - id: php-extension-builder
-    builder: rust
     binary: php-extension-builder
-    tool: cargo
-    command: zigbuild
-    flags:
-      - --release
-      - --locked
-    targets:
-      - x86_64-apple-darwin
-      - aarch64-apple-darwin
-      - x86_64-unknown-linux-gnu
-      - aarch64-unknown-linux-gnu
+    main: ./main.go
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
 
 archives:
   - id: php-extension-builder
