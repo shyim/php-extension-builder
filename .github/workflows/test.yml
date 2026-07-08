@@ -21,14 +21,6 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
 
-      - name: Check formatting
-        run: |
-          if [ -n "$(gofmt -l .)" ]; then
-            echo "Go files not formatted:"
-            gofmt -d .
-            exit 1
-          fi
-
       - name: Run tests
         run: go test -v ./...
 

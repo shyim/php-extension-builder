@@ -9,22 +9,22 @@ import (
 
 func defaultArgs(targetOs string) BuildArgs {
 	return BuildArgs{
-		PackageVersion:       "1.2.3",
-		Artifact:             nil,
-		PhpVersion:           "8.3",
-		TargetOs:             targetOs,
-		Libc:                 "",
-		Zts:                  false,
-		BuildPath:            ".",
-		ConfigureFlag:        nil,
+		PackageVersion:      "1.2.3",
+		Artifact:            nil,
+		PhpVersion:          "8.3",
+		TargetOs:            targetOs,
+		Libc:                "",
+		Zts:                 false,
+		BuildPath:           ".",
+		ConfigureFlag:       nil,
 		BeforePhpizeCommand: nil,
-		AptPackage:           nil,
-		ApkPackage:           nil,
-		OutDir:               ".",
-		Image:                "",
-		PhpConfig:            "",
-		BuildKind:            "",
-		CargoFeature:         nil,
+		AptPackage:          nil,
+		ApkPackage:          nil,
+		OutDir:              ".",
+		Image:               "",
+		PhpConfig:           "",
+		BuildKind:           "",
+		CargoFeature:        nil,
 	}
 }
 

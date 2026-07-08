@@ -109,18 +109,18 @@ scripts:
   postinstall: %[11]q
   preremove: %[12]q
 `,
-		pkgName,               // 1
+		pkgName,                // 1
 		details.PackageVersion, // 2
-		debArch,               // 3
-		defaultMaintainer,     // 4
-		details.ExtensionName, // 5
-		phpApi,                // 6
-		virtPkgName,           // 7
-		sourceFile,            // 8
-		tmpIni.Name(),         // 9
-		details.PhpMajorMinor, // 10
-		tmpPostinst.Name(),    // 11
-		tmpPrerm.Name(),       // 12
+		debArch,                // 3
+		defaultMaintainer,      // 4
+		details.ExtensionName,  // 5
+		phpApi,                 // 6
+		virtPkgName,            // 7
+		sourceFile,             // 8
+		tmpIni.Name(),          // 9
+		details.PhpMajorMinor,  // 10
+		tmpPostinst.Name(),     // 11
+		tmpPrerm.Name(),        // 12
 	)
 
 	config, err := nfpm.Parse(strings.NewReader(yamlConfig))

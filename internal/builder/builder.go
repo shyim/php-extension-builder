@@ -13,22 +13,22 @@ import (
 )
 
 type BuildArgs struct {
-	PackageVersion       string
-	Artifact             []string
-	PhpVersion           string
-	TargetOs             string
-	Libc                 string
-	Zts                  bool
-	BuildPath            string
-	ConfigureFlag        []string
+	PackageVersion      string
+	Artifact            []string
+	PhpVersion          string
+	TargetOs            string
+	Libc                string
+	Zts                 bool
+	BuildPath           string
+	ConfigureFlag       []string
 	BeforePhpizeCommand []string
-	AptPackage           []string
-	ApkPackage           []string
-	OutDir               string
-	Image                string
-	PhpConfig            string
-	BuildKind            string
-	CargoFeature         []string
+	AptPackage          []string
+	ApkPackage          []string
+	OutDir              string
+	Image               string
+	PhpConfig           string
+	BuildKind           string
+	CargoFeature        []string
 }
 
 func Build(args BuildArgs) ([]string, error) {
