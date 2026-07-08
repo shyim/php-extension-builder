@@ -5,3 +5,4 @@ coverage/
 *.zip
 .idea
 .DS_Store
+/php-extension-builder
