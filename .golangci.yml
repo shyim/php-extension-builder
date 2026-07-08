@@ -12,14 +12,14 @@ linters:
   enable:
     - misspell
     - nakedret
-
-linters-settings:
-  staticcheck:
-    checks:
-      - "all"
-      - "-ST1005"
+  settings:
+    staticcheck:
+      checks:
+        - "all"
+        - "-ST1000"
+        - "-ST1003"
+        - "-ST1005"
 
 issues:
-  exclude-use-default: true
   max-issues-per-linter: 0
   max-same-issues: 0
