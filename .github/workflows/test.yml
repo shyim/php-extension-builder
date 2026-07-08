@@ -16,6 +16,11 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
 
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2
+
       - name: Check formatting
         run: |
           if [ -n "$(gofmt -l .)" ]; then

@@ -47,11 +47,11 @@ func (n NativeDarwin) Build(cfg *config.BuildConfig) (*BuildMetadata, error) {
 
 	switch cfg.ExtensionKind {
 	case config.BuildKindC:
-		if err := nativeBuildC(cfg, phpConfig); err != nil {
+		if err := nativeBuildC(cfg); err != nil {
 			return nil, err
 		}
 	case config.BuildKindRust:
-		if err := nativeBuildRust(cfg, phpConfig); err != nil {
+		if err := nativeBuildRust(cfg); err != nil {
 			return nil, err
 		}
 	}
@@ -110,7 +110,7 @@ func nativeMetadata(cfg *config.BuildConfig, phpConfig string) (*BuildMetadata, 
 	}, nil
 }
 
-func nativeBuildC(cfg *config.BuildConfig, phpConfig string) error {
+func nativeBuildC(cfg *config.BuildConfig) error {
 	if err := runNative("phpize", nil, cfg.BuildPath, "phpize"); err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func nativeBuildC(cfg *config.BuildConfig, phpConfig string) error {
 	return runNative("make", nil, cfg.BuildPath, "make")
 }
 
-func nativeBuildRust(cfg *config.BuildConfig, phpConfig string) error {
+func nativeBuildRust(cfg *config.BuildConfig) error {
 	configM4 := filepath.Join(cfg.BuildPath, "config.m4")
 	pieConfigM4 := filepath.Join(cfg.BuildPath, "pie", "config.m4")
 

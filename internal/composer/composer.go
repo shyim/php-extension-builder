@@ -25,7 +25,7 @@ func ExtensionNameFromFile(path string) (string, error) {
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		// Matching Rust error: "{} not found. This does not appear to be a PIE package."
-		return "", fmt.Errorf("%s not found. This does not appear to be a PIE package.", filepath.Base(path))
+		return "", fmt.Errorf("%s not found; this does not appear to be a PIE package", filepath.Base(path))
 	}
 	return ExtensionNameFromJSON(contents)
 }
@@ -41,7 +41,7 @@ func ExtensionNameFromJSON(contents []byte) (string, error) {
 		packageType = "null"
 	}
 	if packageType != "php-ext" && packageType != "php-ext-zend" {
-		return "", fmt.Errorf("composer.json type must be \"php-ext\" or \"php-ext-zend\", but \"%s\" was found.", packageType)
+		return "", fmt.Errorf("composer.json type must be \"php-ext\" or \"php-ext-zend\", but \"%s\" was found", packageType)
 	}
 
 	var extensionName string
@@ -52,19 +52,17 @@ func ExtensionNameFromJSON(contents []byte) (string, error) {
 	if extensionName == "" {
 		packageName := composer.Name
 		if packageName == "" {
-			return "", fmt.Errorf("Could not determine extension name: both .\"php-ext\".\"extension-name\" and .name are missing in composer.json")
+			return "", fmt.Errorf("could not determine extension name: both .\"php-ext\".\"extension-name\" and .name are missing in composer.json")
 		}
 
 		parts := strings.Split(packageName, "/")
 		extensionName = parts[len(parts)-1]
 	}
 
-	if strings.HasPrefix(extensionName, "ext-") {
-		extensionName = strings.TrimPrefix(extensionName, "ext-")
-	}
+	extensionName = strings.TrimPrefix(extensionName, "ext-")
 
 	if !extensionNameRegex.MatchString(extensionName) {
-		return "", fmt.Errorf("Invalid extension name: \"%s\" - must be alphanumeric/underscores only.", extensionName)
+		return "", fmt.Errorf("invalid extension name: \"%s\" - must be alphanumeric/underscores only", extensionName)
 	}
 
 	return extensionName, nil

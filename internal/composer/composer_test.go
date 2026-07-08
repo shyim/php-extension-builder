@@ -9,7 +9,7 @@ func TestRejectsMissingOrInvalidType(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	expected := `composer.json type must be "php-ext" or "php-ext-zend", but "library" was found.`
+	expected := `composer.json type must be "php-ext" or "php-ext-zend", but "library" was found`
 	if err.Error() != expected {
 		t.Errorf("expected %q, got %q", expected, err.Error())
 	}
@@ -42,7 +42,7 @@ func TestRejectsMissingExtensionAndPackageNames(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	expected := `Could not determine extension name: both ."php-ext"."extension-name" and .name are missing in composer.json`
+	expected := `could not determine extension name: both ."php-ext"."extension-name" and .name are missing in composer.json`
 	if err.Error() != expected {
 		t.Errorf("expected %q, got %q", expected, err.Error())
 	}
@@ -55,7 +55,7 @@ func TestRejectsInvalidExtensionName(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	expected := `Invalid extension name: "invalid-ext-name" - must be alphanumeric/underscores only.`
+	expected := `invalid extension name: "invalid-ext-name" - must be alphanumeric/underscores only`
 	if err.Error() != expected {
 		t.Errorf("expected %q, got %q", expected, err.Error())
 	}
